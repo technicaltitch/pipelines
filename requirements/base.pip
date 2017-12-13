@@ -1,0 +1,20 @@
+# Operating system packages required can be installed with:
+# sudo apt-get install -y libproj-dev libgdal1-dev gdal-bin libxml2-dev libxslt1-dev libffi-dev python3-tk
+# For development and test environments you also need:
+# sudo apt-get install -y libsqlite3-dev libsqlite3-mod-spatialite libgraphviz-dev
+
+beautifulsoup4==4.6.0
+bottleneck==1.2.1
+ipython==6.1.0
+lxml==3.8.0
+luigi==2.7.1
+Markdown==2.6.8
+matplotlib==2.1.0
+numexpr==2.6.4
+openpyxl==2.4.9
+pandas==0.21.0
+python-dateutil==2.6.0
+seaborn==0.8.1
+tables==3.4.2
+xlrd==1.1.0
+xlsxwriter==1.0.2
