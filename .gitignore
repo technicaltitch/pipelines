@@ -1,0 +1,34 @@
+.DS_Store
+luigi.cfg
+
+# Python bytecode:
+*.py[co]
+
+# Packaging files:
+*.egg*
+
+# Jupyter Checkpoints
+.ipynb_checkpoints
+
+# Editor temp files:
+*.swp
+*~
+
+# Sphinx docs:
+build
+
+# SQLite3 database files:
+*.db
+
+# Docker volumes
+volumes/
+
+# Logs:
+log/
+*.log
+*.log.*
+logfile*
+
+# PIDs:
+*.pid
+
