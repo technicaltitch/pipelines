@@ -2,8 +2,10 @@
 Various utlity functions to help with Data Pipeline development
 """
 from contextlib import contextmanager
+from copy import deepcopy
 import datetime
 from functools import wraps
+import importlib
 import inspect
 import logging
 import time
@@ -29,6 +31,23 @@ def timeit(method):
             print('%r  %2.2f ms' % (method.__name__, (te - ts) * 1000))
         return result
     return timed
+
+
+@contextmanager
+def temporary_config():
+    """
+    Create a temporary Luigi Config
+    """
+    config = luigi.configuration.get_config()
+    original_config = config.defaults()
+
+    # Yield the completed config
+    yield config
+
+    # Remove any config we set up
+    config.reload()
+    for k, v in original_config.items():
+        config[k] = v
 
 
 @contextmanager
@@ -157,3 +176,18 @@ def remove_outputs(task, cascade=False):
                         remove_outputs(task, cascade)
                 except TypeError:
                     raise Exception('Cannot determine dependencies for %s' % str(deps))
+
+def run(task, **kwargs):
+    """Run a Task using a flexible interface"""
+    with temporary_config() as config:
+        config.update(kwargs)
+        # If Task is a sting then replace it with the Class definition
+        if isinstance(task, str):
+            module, cls = task.rsplit('.', 1)
+            task = getattr(importlib.import_module(module), cls)
+        # If Task is a class then instantiate it
+        if inspect.isclass(task):
+            task = task()
+        assert isinstance(task, luigi.Task)
+        luigi.build([task])
+        return task.output()
