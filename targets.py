@@ -1,4 +1,5 @@
 from copy import deepcopy
+from io import BytesIO
 import glob
 import hashlib
 from inspect import getsource
@@ -10,7 +11,7 @@ from threading import Condition
 import time
 
 import luigi
-
+import requests
 
 logger = logging.getLogger('luigi-interface')
 
@@ -141,6 +142,73 @@ class ExpiringLocalTarget(luigi.local_target.LocalTarget):
             mtime = os.path.getmtime(self.path)
             if mtime + self.timeout < time.time():
                 logger.debug("ExpiringLocalTarget '%s' has expired" % self.path)
+                exists = False
+                self.remove()
+        return exists
+
+
+class CKANTarget(luigi.target.Target):
+    """
+    A Luigi Target that stores data in a CKAN Instance.
+    """
+
+    def __init__(self, resource=None, dataset=None, server=None, auth=None, cache=None, timeout=None, task=None):
+        self.resource = resource
+        self.dataset = dataset
+        self.server = server or config['ckan.server']
+        self.auth = auth or config['ckan.auth']
+        self.task = task
+        self.timeout = timeout or config['ckan.timeout'] or config['core.timeout']
+
+    @property
+    def url(self):
+        pass
+        #return resource_url
+
+    @property
+    def key(self):
+        """
+        Create a unique cache key for the Target.
+
+        We include the Task source code so that code changes in the Task automatically
+        cause a cache miss
+        """
+        key = self.resource
+        if self.task:
+            key += getsource(self.task.__class__)
+        return hashlib.md5(key.encode()).hexdigest()
+
+    def get(self):
+        # Use requests to retrieve remote data so we can handle authentication
+        auth = self.source_auth
+        url = self.source_url
+        if isinstance(auth, (tuple, list)):
+            response = requests.get(url, params=self.source_parameters,
+                                    auth=tuple(auth))
+        elif auth:
+            response = requests.get(url, params=self.source_parameters,
+                                    headers={'Authorization': auth})
+        else:
+            response = requests.get(url, params=self.source_parameters)
+        response.raise_for_status()
+        return BytesIO(response.content)
+        #return self.cache[self.key][1]
+
+    def put(self, value):
+        # if updating an existing resource, call:
+        # http --json POST http://demo.ckan.org/api/3/action/resource_update id=<resource id> upload=@updated_file.csv Authorization:<api key>
+        self.cache[self.key] = (time.time(), value)
+
+    def remove(self):
+        # delete a remote CKAN resource
+        del self.cache[self.key]
+
+    def exists(self):
+        exists = self.key in self.cache
+        if exists:
+            modified_time = self.cache[self.key][0]
+            if modified_time + self.timeout < time.time():
+                logger.debug("MemoryTarget '%s' has expired" % self.key)
                 exists = False
                 self.remove()
         return exists
