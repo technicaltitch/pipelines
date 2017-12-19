@@ -28,6 +28,18 @@ from the project root directory.
 Re-coding should always be done using dicts imported from a `mappings.py`
 so that they only need to be maintained in a single, known location.
 
+## Replicability
+
+It is vital that we can replicate our analyses in other environments.
+This allows us to prove our results to our clients, and to automate
+production of regular outputs using pipelines running on servers.
+The requirement for replicability places some constraints on how
+pipelines are designed:
+
+* All pipelines must start with data downloaded from a server, such as
+KoboToolbox or CKAN. I.e. any `ExternalTask` must download data
+from a remote location; an `ExternalTask` cannot output a `LocalTarget`.
+
 ## Collated Data
 
 In general, we should produce a collated dataframe that contains
