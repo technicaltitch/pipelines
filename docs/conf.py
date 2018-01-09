@@ -91,7 +91,7 @@ try:
     project_description = getattr(project_conf, 'project_description', project_description)
     copyright = getattr(project_conf, 'copyright', copyright)  # NOQA
     author = getattr(project_conf, 'author', project)
-except ImportError:
+except (FileNotFoundError, ImportError):
     pass
 
 # The version info for the project you're documenting, acts as replacement for
