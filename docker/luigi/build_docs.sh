@@ -24,7 +24,7 @@ if [ ! -f /usr/local/bin/gosu ]; then
 fi
 
 cd docs
-gosu luigi html
-gosu luigi latexpdf
+gosu luigi make html
+gosu luigi make latexpdf
 cp _build/latex/*.pdf _build/html/
 cd ..
