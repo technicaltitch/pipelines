@@ -27,7 +27,7 @@ test_app:
     - docker-compose -f docker-compose.yml -f docker-compose.ci.yml run --rm luigi
   after_script:
     - docker-compose -f docker-compose.yml -f docker-compose.ci.yml down
-    - for SERVICE in ${ALL_IMAGES}; do docker rmi ci${APP}${CI_BUILD_ID}_${SERVICE}:latest; done
+    - for SERVICE in ${ALL_IMAGES}; do docker rmi ci${APP}${CI_PIPELINE_ID}_${SERVICE}:latest; done
   stage: build_then_test
   except:
     - tags
