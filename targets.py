@@ -163,7 +163,7 @@ class CKANTarget(luigi.target.Target):
     @property
     def url(self):
         pass
-        #return resource_url
+        # return resource_url
 
     @property
     def key(self):
@@ -192,11 +192,11 @@ class CKANTarget(luigi.target.Target):
             response = requests.get(url, params=self.source_parameters)
         response.raise_for_status()
         return BytesIO(response.content)
-        #return self.cache[self.key][1]
+        # return self.cache[self.key][1]
 
     def put(self, value):
         # if updating an existing resource, call:
-        # http --json POST http://demo.ckan.org/api/3/action/resource_update id=<resource id> upload=@updated_file.csv Authorization:<api key>
+        # http --json POST http://demo.ckan.org/api/3/action/resource_update id=<resource id> upload=@updated_file.csv Authorization:<api key>  # NOQA
         self.cache[self.key] = (time.time(), value)
 
     def remove(self):

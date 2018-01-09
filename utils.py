@@ -2,7 +2,6 @@
 Various utlity functions to help with Data Pipeline development
 """
 from contextlib import contextmanager
-from copy import deepcopy
 import datetime
 from functools import wraps
 import importlib
@@ -176,6 +175,7 @@ def remove_outputs(task, cascade=False):
                         remove_outputs(task, cascade)
                 except TypeError:
                     raise Exception('Cannot determine dependencies for %s' % str(deps))
+
 
 def run(task, **kwargs):
     """Run a Task using a flexible interface"""
