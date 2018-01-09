@@ -26,8 +26,16 @@ if [ ! -f /usr/local/bin/gosu ]; then
         && gosu nobody true
 fi
 
+# Make sure that the build directory is writable by the luigi user
+# (it might not be if it already exists or has been mounted as a Docker volume)
+chown -R luigi:luigi docs/_build
+
+# Build the documentation
 cd docs
 gosu luigi make html
 gosu luigi make latexpdf
+
+# Copy build pdf docs to the html folder so they can be downloaded from hosted documentation
 cp _build/latex/*.pdf _build/html/
+
 cd ..

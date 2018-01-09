@@ -1,0 +1,9 @@
+*.pyc
+.DS_Store
+.coverage
+docs/_build
+.env
+.tox
+.wheelhouse
+log
+run
