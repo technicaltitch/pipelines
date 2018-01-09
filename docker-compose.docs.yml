@@ -1,0 +1,10 @@
+version: '2'
+services:
+  luigi:
+    restart: "no"
+    volumes:
+      - ./public:/usr/src/app/docs/_build/html  # Needed for Gitlab Pages to serve the compiled docs
+    entrypoint:
+      - '/usr/src/app/docker/luigi/build_docs.sh'
+    command: ""
+    user: root  # Needed for pip install in build_docs.sh to work
