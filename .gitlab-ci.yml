@@ -1,0 +1,33 @@
+stages:
+  - build_then_test
+
+variables:
+  APP: ppl
+
+  # enabling clone of submodules from private gitlab repo: https://stackoverflow.com/a/42224451
+  GIT_SUBMODULE_STRATEGY: recursive
+
+  # Use a unique name for the network and and containers so that we can run multiple builds simultaneously
+  COMPOSE_PROJECT_NAME: ci_${APP}_${CI_PIPELINE_ID}
+
+  # Tag the app and push to the Registry
+  BUILD_IMAGES: "luigi"
+  ALL_IMAGES: "luigi"
+
+  # AWS Variables to allow deployment
+  AWS_DEFAULT_REGION: "us-east-1"
+  ECS_CLUSTER: "kimecs01"
+
+test_app:
+  before_script:
+    - docker-compose -f docker-compose.yml build --force-rm
+  script:
+    # Use run instead of up because we want docker-compose to return the exit code
+    # docker-compose.ci.yml changes the entrypoint to run tests
+    - docker-compose -f docker-compose.yml -f docker-compose.ci.yml run --rm luigi
+  after_script:
+    - docker-compose -f docker-compose.yml -f docker-compose.ci.yml down
+    - for SERVICE in ${ALL_IMAGES}; do docker rmi ci${APP}${CI_BUILD_ID}_${SERVICE}:latest; done
+  stage: build_then_test
+  except:
+    - tags

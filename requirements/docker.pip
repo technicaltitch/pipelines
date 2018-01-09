@@ -1,0 +1,3 @@
+-r production.pip
+
+docker-compose==1.18

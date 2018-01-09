@@ -1,0 +1,8 @@
+version: '2'
+services:
+  luigi:
+    restart: "no"
+    entrypoint:
+      - '/usr/src/app/docker/luigi/run_tests.sh'
+    command: ""
+    user: root  # Needed for pip install in run_tests.sh to work

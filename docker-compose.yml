@@ -1,0 +1,9 @@
+version: '2'
+
+services:
+  luigi:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/luigi/Dockerfile
+    mem_limit: 500M
