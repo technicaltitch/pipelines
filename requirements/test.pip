@@ -1,3 +1,13 @@
 # Test dependencies go here.
+
+# Additional os packages are required to be able to produce PDF documentation (note that these are a 700MB download)
+#    texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra latexmk
+
 -r base.pip
+
+# Linting
 flake8==3.4.1
+
+# Documentation
+recommonmark==0.4.0
+Sphinx==1.6.5
