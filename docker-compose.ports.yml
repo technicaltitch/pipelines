@@ -1,0 +1,5 @@
+version: '2'
+services:
+  luigi:
+    ports:
+      - "8082:8082"
