@@ -4,6 +4,9 @@ set -e
 # Additional packages are required to be able to produce PDF documentation (note that these are a 700MB download)
 apt-get update && apt-get install -y texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra latexmk
 
+echo Installing documentation dependencies
+pip install -r requirements/test.pip
+
 if [ ! -f /usr/local/bin/gosu ]; then
     echo Installing gosu
     apt-get update && apt-get install -y dirmngr  # required on modern Ubuntu
