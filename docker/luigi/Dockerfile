@@ -14,6 +14,7 @@ ARG INCLUDE_LATEX
 RUN if [ -n "${INCLUDE_LATEX}" ]; then \
         apt-get update && \
         apt-get install -y \
+            make \
             texlive-latex-recommended \
             texlive-fonts-recommended \
             texlive-latex-extra \

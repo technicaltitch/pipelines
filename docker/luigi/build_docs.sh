@@ -7,8 +7,8 @@ set -e
 # Build the documentation
 cd docs
 
-sphinx-build -b html . ./_build
-sphinx-build -b latexpdf . ./_build
+make html
+make latexpdf
 
 # Copy build pdf docs to the html folder so they can be downloaded from hosted documentation
 cp _build/latex/*.pdf _build/html/
