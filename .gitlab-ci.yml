@@ -1,6 +1,7 @@
 stages:
   - build_then_test
   - docs
+  - deploy
   - cleanup
 
 variables:
@@ -51,3 +52,4 @@ cleanup:
   script:
     - for SERVICE in ${ALL_IMAGES}; do docker rmi ci${APP}${CI_PIPELINE_ID}_${SERVICE}:latest; done
   stage: cleanup
+  when: always
