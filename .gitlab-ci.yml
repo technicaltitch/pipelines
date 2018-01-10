@@ -40,7 +40,7 @@ pages:
     # docker-compose.docs.yml changes the entrypoint to run build docs
     - docker-compose -f docker-compose.yml -f docker-compose.docs.yml run luigi
     # Copy the html docs to the public/ directory for use by Gitlab Pages
-    - docker cp ci${APP}${CI_PIPELINE_ID}_${SERVICE}_1:/usr/src/app/docs/_build/html/. public/
+    - docker cp ci${APP}${CI_PIPELINE_ID}_luigi_run_1:/usr/src/app/docs/_build/html/. public/
   after_script:
     - docker-compose -f docker-compose.yml -f docker-compose.docs.yml down
   stage: docs
