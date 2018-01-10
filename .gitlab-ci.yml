@@ -35,6 +35,8 @@ test_app:
     - tags
 
 pages:
+  before_script:
+    - docker-compose -f docker-compose.yml -f docker-compose.docs.yml build
   script:
     # Use run instead of up because we want docker-compose to return the exit code
     # docker-compose.docs.yml changes the entrypoint to run build docs
