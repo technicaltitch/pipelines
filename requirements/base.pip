@@ -1,20 +1,9 @@
-# Operating system packages required can be installed with:
-# sudo apt-get install -y libproj-dev libgdal1-dev gdal-bin libxml2-dev libxslt1-dev libffi-dev python3-tk
-# For development and test environments you also need:
-# sudo apt-get install -y libsqlite3-dev libsqlite3-mod-spatialite libgraphviz-dev
+# Used for packages that are not available in conda and which do not require compilation
 
-beautifulsoup4==4.6.0
-bottleneck==1.2.1
-ipython==6.1.0
-lxml==3.8.0
-luigi==2.7.1
-Markdown==2.6.8
-matplotlib==2.1.0
-numexpr==2.6.4
-openpyxl==2.4.9
-pandas==0.21.0
-python-dateutil==2.6.0
-seaborn==0.8.1
-tables==3.4.2
-xlrd==1.1.0
-xlsxwriter==1.0.2
+# Linting and Testing
+flake8==3.4.1  # This is available in conda, but extensions like flake8-commas are not, so we prefer the pip version
+
+# Documentation
+git+https://github.com/rtfd/recommonmark.git@c410abb565a3c4ad4de0ce204ab2fa2db8031cf1#egg
+Sphinx==1.6.3
+sphinx-autobuild==0.7.1

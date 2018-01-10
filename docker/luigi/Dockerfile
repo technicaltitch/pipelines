@@ -1,23 +1,11 @@
-FROM python:3.6
+FROM continuumio/miniconda3:latest
 
 RUN apt-get update && \
     apt-get install -y \
         apt-transport-https \
         vim \
         curl \
-        postgresql-client \
-        build-essential \
-        git-core \
-        gdal-bin \
-        libssl-dev \
-        libffi-dev \
-        libsasl2-dev \
-        libldap2-dev \
-        libhdf5-serial-dev \
-        libproj-dev \
-        libgdal1-dev \
-        libxml2-dev \
-        libxslt1-dev && \
+        postgresql-client && \
     apt-get clean && \
     apt-get -y autoremove && \ 
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -25,11 +13,10 @@ RUN apt-get update && \
 WORKDIR /usr/src/app
 
 # Install Python dependencies
-# Make sure editable installs aren't in the app src directory (because then they
-# are no longer available if we mount the upstream source directly)
 COPY requirements requirements
-RUN pip install --no-cache-dir --upgrade setuptools pip
-RUN pip install --src /usr/src --no-cache-dir -r requirements/production.pip
+RUN conda config --append channels conda-forge
+RUN conda install --yes --file requirements/base.conda
+RUN pip install --requirement requirements/base.pip
 
 # Set up mostly static layers that don't change often
 ENV PYTHONIOENCODING UTF-8
@@ -56,4 +43,3 @@ RUN chown -R luigi:luigi docs/_build log run
 
 # Switch to unprivileged user
 USER luigi
-
