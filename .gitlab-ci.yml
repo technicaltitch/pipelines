@@ -1,5 +1,8 @@
 stages:
   - build_then_test
+  - docs
+  - deploy
+  - cleanup
 
 variables:
   APP: ppl
@@ -27,7 +30,32 @@ test_app:
     - docker-compose -f docker-compose.yml -f docker-compose.ci.yml run --rm luigi
   after_script:
     - docker-compose -f docker-compose.yml -f docker-compose.ci.yml down
-    - for SERVICE in ${ALL_IMAGES}; do docker rmi ci${APP}${CI_PIPELINE_ID}_${SERVICE}:latest; done
   stage: build_then_test
   except:
     - tags
+
+pages:
+  before_script:
+    - docker-compose -f docker-compose.yml -f docker-compose.docs.yml build
+  script:
+    # Use run instead of up because we want docker-compose to return the exit code
+    # docker-compose.docs.yml changes the entrypoint to run build docs
+    - docker-compose -f docker-compose.yml -f docker-compose.docs.yml run luigi
+    # Copy the html docs to the public/ directory for use by Gitlab Pages
+    - docker cp ci${APP}${CI_PIPELINE_ID}_luigi_run_1:/usr/src/app/docs/_build/html/. public/
+  after_script:
+    - docker-compose -f docker-compose.yml -f docker-compose.docs.yml down
+  stage: docs
+  artifacts:
+    paths:
+      - public
+    expire_in: 1 week
+  only:
+    - 8861-Sphinx
+
+cleanup:
+  script:
+    - rm -rf 
+    - for SERVICE in ${ALL_IMAGES}; do docker rmi ci${APP}${CI_PIPELINE_ID}_${SERVICE}:latest; done
+  stage: cleanup
+  when: always

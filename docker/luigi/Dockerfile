@@ -10,6 +10,22 @@ RUN apt-get update && \
     apt-get -y autoremove && \ 
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+ARG INCLUDE_LATEX
+RUN if [ -n "${INCLUDE_LATEX}" ]; then \
+        apt-get update && \
+        apt-get install -y \
+            make \
+            texlive-latex-recommended \
+            texlive-fonts-recommended \
+            texlive-latex-extra \
+            latexmk && \
+        apt-get clean && \
+        apt-get -y autoremove && \
+        rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* ; \
+    else \
+        echo "INCLUDE_LATEX is not set - skipping LaTeX install" ; \
+    fi
+
 WORKDIR /usr/src/app
 
 # Install Python dependencies

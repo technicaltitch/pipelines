@@ -1,0 +1,11 @@
+version: '2'
+services:
+  luigi:
+    restart: "no"
+    build:
+       args:
+        INCLUDE_LATEX: Y
+    entrypoint:
+      - '/usr/src/app/docker/luigi/build_docs.sh'
+    command: ""
+    user: root  # Needed for apt-get and pip install in build_docs.sh to work
