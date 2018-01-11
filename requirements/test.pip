@@ -1,3 +1,0 @@
-# Test dependencies go here.
--r base.pip
-flake8==3.4.1
