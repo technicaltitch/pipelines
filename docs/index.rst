@@ -1,17 +1,17 @@
 Introduction
 ============
 
-.. rubric:: Everything you need to know about |ProjectName| data pipelines.
+.. rubric:: Everything you need to know about |ProjectName|.
 
-This documentation explains how the data analysis performed for |ProjectName|.
+This documentation explains how analysis is performed for |ProjectName|.
 
 The documentation is divided into the following main sections:
 
-* :doc:`Data Pipelines <project>` document specific data analysis pipelines including the input requirements
+* :doc:`Data Pipelines <project>` document project-specific data analysis pipelines including the input requirements
   and final outputs
 
 * :doc:`Pipeline Design Standards </standards/design>` document best practices for
-  designing pipelines using this library.
+  designing pipelines using the Pipelines library.
 
 * :doc:`Python Programming Standards </standards/python>` document required Python programming standards.
 

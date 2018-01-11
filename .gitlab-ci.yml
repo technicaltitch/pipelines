@@ -51,7 +51,7 @@ pages:
       - public
     expire_in: 1 week
   only:
-    - 8861-Sphinx
+    - master
 
 cleanup:
   script:
