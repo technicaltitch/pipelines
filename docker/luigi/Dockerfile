@@ -31,7 +31,7 @@ WORKDIR /usr/src/app
 # Install Python dependencies
 COPY requirements requirements
 RUN conda config --append channels conda-forge
-RUN conda install --yes --file requirements/base.conda
+RUN conda install --quiet --yes --file requirements/base.conda
 RUN pip install --requirement requirements/base.pip
 
 # Set up mostly static layers that don't change often
