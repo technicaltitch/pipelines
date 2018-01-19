@@ -51,6 +51,25 @@ atomic_file = luigi.local_target.atomic_file
 atomic_file.generate_tmp_path = generate_tmp_path
 
 
+class LocalTarget(luigi.local_target.LocalTarget):
+    """
+    A better Luigi LocalTarget that reports the full path.
+    """
+
+    def exists(self):
+        """
+        Returns ``True`` if the path for this FileSystemTarget exists; ``False`` otherwise.
+
+        This method is implemented by using :py:attr:`fs`.
+        """
+        result = super().exists()
+        if result:
+            logger.debug("Found local file or directory %s", self.path)
+        else:
+            logger.warning("Cannot find local file or directory %s", self.path)
+        return result
+
+
 class ExpiringMemoryTarget(luigi.target.Target):
     """
     A Luigi Target that stores data in a thread-safe in-memory cache with per item expiry.
@@ -61,7 +80,8 @@ class ExpiringMemoryTarget(luigi.target.Target):
     the shared memory store.
     """
 
-    def __init__(self, name, cache=None, timeout=None, task=None):
+    def __init__(self, name: str, cache=None, timeout: int = None, task: luigi.Task = None):
+        assert isinstance(name, str)
         self.name = name
         self.task = task
         self.timeout = timeout

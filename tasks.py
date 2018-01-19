@@ -31,13 +31,14 @@ class ReadDataFrameTask(Task):
 
     timeout = luigi.IntParameter(default=120)
     read_method = luigi.Parameter(default='')
-    read_args = luigi.DictParameter(default='{}')
+    read_args = luigi.DictParameter(default={})
 
     def requires(self):
-        return NotImplementedError('Concrete subclasses must specify a Target returning a file readable by Pandas')
+        return NotImplementedError('Concrete subclasses must specify one or more Targets '
+                                   'returning files readable by Pandas')
 
     def output(self):
-        return ExpiringMemoryTarget(self.input().path, timeout=self.timeout)
+        return ExpiringMemoryTarget(str(self), timeout=self.timeout)
 
     def get_read_method(self, filename):
         if self.read_method:
@@ -50,8 +51,8 @@ class ReadDataFrameTask(Task):
     def get_read_args(self):
         return self.read_args
 
-    def run(self):
-        with self.input().open('r') as f:
+    def read_dataframe(self, file_obj):
+        with file_obj.open('r') as f:
             filename = f.name
             read_method = getattr(pd, self.get_read_method(filename))
 
@@ -60,7 +61,19 @@ class ReadDataFrameTask(Task):
                 logger.debug('Workbook %s contains sheets %s' % (filename, wb.sheet_names()))
 
             df = read_method(filename, **self.get_read_args())
-            self.output().put(df)
+            return df
+
+    def run(self):
+        targets = self.input()
+
+        if isinstance(targets, luigi.Target):
+            self.output().put(self.read_dataframe(targets))
+        elif isinstance(targets, dict):
+            output = {key: self.read_dataframe(target) for key, target in targets.items()}
+            self.output().put(output)
+        elif isinstance(targets, (list, tuple)):
+            output = {os.path.basename(target.path): self.read_dataframe(target) for target in targets}
+            self.output().put(output)
 
 
 class DataFrameOutputTask(Task):
