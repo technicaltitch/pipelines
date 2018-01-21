@@ -14,7 +14,8 @@ beautifulsoup4==4.6.0
 bottleneck==1.2.1
 ipython==6.1.0
 lxml==3.8.0
-gdal==2.2.3
+gdal==2.2.2
+geopandas==0.3.0
 luigi==2.7.1
 Markdown==2.6.8
 matplotlib==2.1.1
@@ -23,6 +24,7 @@ openpyxl==2.4.7
 pandas==0.21.0
 python-dateutil==2.6.0
 pytables==3.4.2
+requests==2.18.4
 seaborn==0.8.1
 xlrd==1.1.0
 xlsxwriter==1.0.2

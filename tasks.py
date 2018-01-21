@@ -3,6 +3,7 @@ import os
 import string
 import typing
 
+import geopandas as gpd
 import luigi
 import pandas as pd
 from pipelines.targets import ExpiringLocalTarget, ExpiringMemoryTarget
@@ -20,7 +21,7 @@ class Task(luigi.Task):
 
 class ReadDataFrameTask(Task):
     """
-    A Pipeline Task that reads a Pandas DataFrame from a file and returns it as a MemoryTarget
+    A Pipeline Task that reads one or more Pandas DataFrames from file(s) and returns them as a MemoryTarget
     """
     extensions = {
         '.xls': 'read_excel',

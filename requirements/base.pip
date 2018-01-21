@@ -4,6 +4,8 @@
 flake8==3.4.1  # This is available in conda, but extensions like flake8-commas are not, so we prefer the pip version
 
 # Documentation
+# recommonmark from conda-forge doesn't work - see https://github.com/conda-forge/recommonmark-feedstock/issues/2
+# so use pip instead
 git+https://github.com/rtfd/recommonmark.git@c410abb565a3c4ad4de0ce204ab2fa2db8031cf1#egg
 Sphinx==1.6.3
 sphinx-autobuild==0.7.1

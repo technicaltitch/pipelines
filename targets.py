@@ -56,6 +56,12 @@ class LocalTarget(luigi.local_target.LocalTarget):
     A better Luigi LocalTarget that reports the full path.
     """
 
+    def __init__(self, path=None, format=None, is_tmp=False):
+        """Normalize path as part of initialization"""
+        if path:
+            path = os.path.normpath(os.path.expanduser(path))
+        super().__init__(path, format, is_tmp)
+
     def exists(self):
         """
         Returns ``True`` if the path for this FileSystemTarget exists; ``False`` otherwise.
