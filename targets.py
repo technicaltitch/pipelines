@@ -86,8 +86,11 @@ class ExpiringMemoryTarget(luigi.target.Target):
     the shared memory store.
     """
 
-    def __init__(self, name: str, cache=None, timeout: int = None, task: luigi.Task = None):
-        assert isinstance(name, str)
+    def __init__(self, name: str = None, timeout: int = None, cache=None, task: luigi.Task = None):
+        assert isinstance(name, str), 'name is the unique identifier the Target, and must be a string, not %r' % name
+        assert isinstance(timeout, int) and timeout > 0, ('timeout is the number of seconds the Target is valid for '
+                                                          'before being recalculated, and must be a positive integer, '
+                                                          'not %r' % timeout)
         self.name = name
         self.task = task
         self.timeout = timeout
