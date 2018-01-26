@@ -1,14 +1,12 @@
 import logging
 import os
-import string
-import typing
+from typing import BinaryIO, Dict, List, Union
 
 import geopandas as gpd
 import luigi
 import pandas as pd
 from pipelines.targets import ExpiringLocalTarget, ExpiringMemoryTarget
 from xlrd import open_workbook
-import xlsxwriter
 
 logger = logging.getLogger('luigi-interface')
 
@@ -111,108 +109,61 @@ class DataFrameOutputTask(Task):
     Concrete subclasses must implement a create_output() method.
     """
 
-    filename = None
+    filename: str
 
-    timeout = luigi.IntParameter(default='3600')
+    timeout: luigi.IntParameter = luigi.IntParameter(default=3600)
 
-    def requires(self):
+    def requires(self) -> Union[luigi.Target, List[luigi.Target]]:
         """
-        DataFrame Outputs must require a ReadDataFrameTask
+        Return a single Target (or a list of Targets) where each Target
+        contains either a single DataFrame or a list or dict of DataFrames
         """
         raise NotImplementedError
 
-    def output(self):
-        return ExpiringLocalTarget(self.filename, timeout=self.timeout)
+    def output(self) -> luigi.Target:
+        # Note that format=luigi.format.Nop is required for binary files on Python3
+        # see https://github.com/spotify/luigi/issues/1647
+        return ExpiringLocalTarget(self.filename, format=luigi.format.Nop, timeout=self.timeout)
 
     def run(self):
-        df = self.input()
-        assert isinstance(df, pd.DataFrame)
-        with self.output().open(mode='w') as f:
-            self.build_output(f, df)
+        inputs = self.input()
+        # Make sure we have a dict so we can iterate over items
+        if isinstance(inputs, luigi.Target):
+            inputs = {'Data': inputs}
+        dfs = {}
+        for key, target in inputs.items():
+            contents = target.get()
+            if isinstance(contents, pd.DataFrame):
+                dfs[key] = contents
+            elif isinstance(contents, dict):
+                dfs.update(contents)
+            elif isinstance(contents, list):
+                for seq, df in enumerate(contents):
+                    dfs['%s (%d)' % (key, seq)] = df
 
-    def build_output(self, f: typing.BinaryIO, df):
+        assert all(isinstance(df, pd.DataFrame) for df in dfs.values())
+        with self.output().open(mode='wb') as f:
+            self.build_output(f, dfs)
+
+    def build_output(self, f: BinaryIO, dfs: Dict[str, pd.DataFrame]):
         """
-        Build the output from the provided dataframe and output it to the provided filename
+        Build the output from the provided dataframes and output it to the provided file
         """
         raise NotImplementedError
 
 
 class DataFrameOutputToExcelTask(DataFrameOutputTask):
 
-    first_column_label = luigi.BoolParameter(default='true')
-    first_row_header = luigi.BoolParameter(default='true')
-    format_numbers = luigi.BoolParameter(default='true')
-
-    def add_formats(self, book: xlsxwriter.Workbook):
+    def prepare_sheet(self, sheet_name, df):
         """
-        Replace the dict of formats with actual formats on the open Workbook
+        Return a prepared DataFrame for saving to Excel, e.g. by applying styles
         """
+        return df
 
-        # Standard formats available to all workbooks
-        formats = {
-            'label': {'align': 'vcenter'},
-            'percent': {'num_format': '0%'},
-            'num': {'num_format': '0'},
-            'header': {'align': 'vcenter', 'bold': True, 'font_color': 'white', 'bg_color': 'red'},
-            'bold': {'bold': True},
-        }
-
-        # Add custom formats
-        formats.update(self.formats)
-
-        # Replace self.formats with usable formats on the open workbook
-        for name, frmt in formats.items():
-            self.formats[name] = book.add_format(frmt)
-
-    def run(self):
-        with self.output().open(mode='w') as f:
-            # Convert a single DataFrame to an dict
-            inputs = self.input()
-            if isinstance(inputs, pd.DataFrame):
-                inputs = {'Data': inputs}
-
-            # Create the ExcelWriter and add the formats to it
-            wb = pd.ExcelWriter(f, engine='xlsxwriter')
-            self.add_formats(wb.book)
-
-            # Build the workbook
-            self.build_output(wb, inputs)
-
-            # Save and quite
-            wb.save()
-
-    def build_output(self, wb, inputs):
-        for sheet_name, df in inputs.items():
-            df.to_excel(wb, sheet_name=sheet_name)
-            worksheet = wb.sheets[sheet_name]
-            self.format_worksheet(worksheet, df)
-
-    def format_worksheet(self, worksheet, df):
-        """Format worksheet cells"""
-        formatted_ranges = self.formatted_ranges
-
-        if self.first_column_label:
-            formatted_ranges['A:A'] = self.formats['label']
-
-        if self.first_row_header:
-            formatted_ranges['1:1'] = self.formats['header']
-
-        if self.format_numbers:
-            end = string.ascii_uppercase[df.shape[1] + 2]
-            worksheet.conditional_format('A1:' + str(end) + '1',
-                                         {'type': 'cell',
-                                          'criteria': '>',
-                                          'value': 1,
-                                          'format': self.formats['num']})
-
-        # Set Columns Widths
-        df_temp = df
-        # Loop through all columns
-        for idx, col in enumerate(df_temp):
-            series = df_temp[col]
-            # find length of largest item
-            max_len = max((
-                series.astype(str).map(len).max(),
-                len(str(series.name))
-            ))
-            worksheet.set_column(idx, idx, max_len)
+    def build_output(self, f, dfs):
+        # Use openpyxl so we can support DataFrame.style
+        # see https://pandas.pydata.org/pandas-docs/stable/style.html#Export-to-Excel
+        with pd.ExcelWriter(f, engine='openpyxl') as wb:
+            for sheet_name, df in dfs.items():
+                df = self.prepare_sheet(sheet_name, df)
+                df.to_excel(wb, sheet_name=sheet_name)
