@@ -1,7 +1,8 @@
 FROM continuumio/miniconda3:latest
 
-RUN apt-get update && \
-    apt-get install -y \
+RUN apt-get -qq update && \
+    apt-get -qq upgrade && \
+    apt-get -qq install -y \
         apt-transport-https \
         vim \
         curl \
@@ -12,8 +13,8 @@ RUN apt-get update && \
 
 ARG INCLUDE_LATEX
 RUN if [ -n "${INCLUDE_LATEX}" ]; then \
-        apt-get update && \
-        apt-get install -y \
+        apt-get -qq update && \
+        apt-get -qq install -y \
             make \
             texlive-latex-recommended \
             texlive-fonts-recommended \
@@ -32,7 +33,7 @@ WORKDIR /usr/src/app
 COPY requirements requirements
 RUN conda config --append channels conda-forge
 RUN conda install --quiet --yes --file requirements/base.conda
-RUN pip install --requirement requirements/base.pip
+RUN pip install --quiet --requirement requirements/base.pip
 
 # Set up mostly static layers that don't change often
 ENV PYTHONIOENCODING UTF-8

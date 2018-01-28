@@ -1,0 +1,11 @@
+version: '2'
+services:
+  luigi:
+    ports:
+      - "8082:8082"
+    volumes:
+      - .:/usr/src/app
+      # Ensure we have separate volumes for writable directories inside the container
+      - /usr/src/app/docs/_build
+      - /usr/src/app/log
+      - /usr/src/app/run
