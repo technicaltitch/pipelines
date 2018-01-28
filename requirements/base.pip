@@ -2,6 +2,7 @@
 
 # Linting and Testing
 flake8==3.4.1  # This is available in conda, but extensions like flake8-commas are not, so we prefer the pip version
+mypy==0.560
 
 # Documentation
 # recommonmark from conda-forge doesn't work - see https://github.com/conda-forge/recommonmark-feedstock/issues/2

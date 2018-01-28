@@ -7,6 +7,9 @@ luigi.cfg
 # Packaging files:
 *.egg*
 
+# Cache files:
+.mypy_cache
+
 # Jupyter Checkpoints
 .ipynb_checkpoints
 

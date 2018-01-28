@@ -20,7 +20,7 @@ config = luigi.configuration.get_config()
 
 class ThreadSafeMemoryStore:
     _lock = Condition()
-    _store = {}
+    _store: dict = {}
 
     def __contains__(self, key):
         return key in self._store
@@ -86,7 +86,7 @@ class ExpiringMemoryTarget(luigi.target.Target):
     the shared memory store.
     """
 
-    def __init__(self, name: str = None, timeout: int = None, cache=None, task: luigi.Task = None):
+    def __init__(self, name: str = None, timeout: int = None, cache=None, task: luigi.Task = None) -> None:
         assert isinstance(name, str), 'name is the unique identifier the Target, and must be a string, not %r' % name
         assert isinstance(timeout, int) and timeout > 0, ('timeout is the number of seconds the Target is valid for '
                                                           'before being recalculated, and must be a positive integer, '
