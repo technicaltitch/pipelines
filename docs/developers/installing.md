@@ -10,7 +10,7 @@ standard Python distribution for the operating system.
 
 There are some packages that are not available in the standard Anaconda package repository,
 but which are available in the community-maintained *Conda Forge* repository. The packages
-in this repository are of variable quality, but there are a useful secondary source for
+in this repository are of variable quality, but it is a useful secondary source for
 critical packages, notably *GDAL*. The `conda install` command below uses `--channel`
 to ensure that packages can be installed from *Conda Forge*, but only if there isn't a
 matching package in the default repository.
