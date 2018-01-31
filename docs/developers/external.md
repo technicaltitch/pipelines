@@ -94,12 +94,14 @@ You will also want to set the `timeout` appropriately to ensure that
 you are not having to frequently download data from the KoboToolbox
 server if it has not changed.
 
-Typically, you will
-want to specify a `section` as well. If not, you will be given a dataframe
-containing a cartesian product of all the combinations of repeats for each
-form submission. If you provide a `section` you will receive a `DataFrame`
-containing one row for each entry in that repeat, with columns for the
-questions for that `section` *and* the questions for all sections at a higher
+Typically, you should specify a `section` as well. If not, you the output
+will be given a dataframe containing all the possible combinations of repeats
+for each form submission (i.e. the Cartesian product or Product Set). It is
+unlikely that this is the most useful output format.
+
+If you provide a `section` you will receive a `DataFrame`
+containing one row for each entry in that section or repeat, with columns for the
+questions in that `section` *and* the questions for all sections at a higher
 level that aren't a repeat themselves. I.e. the dataframe will contain the
 equivalent of a SQL `LEFT JOIN` to all the parent sections. This also means
 that if you specify the first section of a form, which is normally the
