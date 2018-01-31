@@ -9,4 +9,3 @@ mypy==0.560
 # so use pip instead
 git+https://github.com/rtfd/recommonmark.git@c410abb565a3c4ad4de0ce204ab2fa2db8031cf1#egg
 Sphinx==1.6.3
-sphinx-autobuild==0.7.1
