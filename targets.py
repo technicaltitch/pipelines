@@ -176,6 +176,44 @@ class ExpiringLocalTarget(luigi.local_target.LocalTarget):
         return exists
 
 
+class RESTTarget(luigi.target.Target):
+    """
+    A Luigi Target that retrieves data from a REST API.
+    """
+
+    def __init__(self, path=None, params={}, server=None, auth=None):
+        self.path = path
+        self.params = params
+        self.server = server
+        self.auth = auth
+
+    def exists(self):
+        """
+        Assume that data exists
+        """
+        return True
+
+    def get(self):
+        # Use requests to retrieve remote data so we can handle authentication
+        auth = self.auth
+        url = f'{self.server}/{self.path}'
+        if url[:4] != 'http':
+            # Default to https if the scheme wasn't specified in the server
+            url = 'https://' + url
+        logger.debug("Downloading remote data from  %s" % url)
+        if isinstance(auth, (tuple, list)):
+            response = requests.get(url, params=self.params,
+                                    auth=tuple(auth))
+        elif auth:
+            response = requests.get(url, params=self.params,
+                                    headers={'Authorization': auth})
+        else:
+            response = requests.get(url, params=self.params)
+        logger.info(f'{response.request.url} {response.status_code} {response.reason}')
+        response.raise_for_status()
+        return BytesIO(response.content)
+
+
 class CKANTarget(luigi.target.Target):
     """
     A Luigi Target that stores data in a CKAN Instance.

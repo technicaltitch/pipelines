@@ -7,6 +7,7 @@ Developers
    installing
    developing
    migrating
+   external
    documentation
 
    tasks

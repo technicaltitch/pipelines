@@ -5,7 +5,7 @@ from typing import BinaryIO, Dict, List, Union
 import geopandas as gpd
 import luigi
 import pandas as pd
-from pipelines.targets import ExpiringLocalTarget, ExpiringMemoryTarget
+from pipelines.targets import ExpiringLocalTarget, ExpiringMemoryTarget, RESTTarget
 from xlrd import open_workbook
 
 logger = logging.getLogger('luigi-interface')
@@ -17,6 +17,19 @@ class Task(luigi.Task):
     """
 
 
+class RESTExternalTask(luigi.ExternalTask):
+    """
+    Fetch data from an external server using a REST API
+    """
+    server = luigi.Parameter()
+    auth = luigi.Parameter(default='')
+    path = luigi.Parameter()
+    params = luigi.DictParameter(default={})
+
+    def output(self):
+        return RESTTarget(self.path, self.params, server=self.server, auth=self.auth)
+
+
 class ReadDataFrameTask(Task):
     """
     A Pipeline Task that reads one or more Pandas DataFrames from file(s) and returns them as a MemoryTarget
@@ -25,7 +38,8 @@ class ReadDataFrameTask(Task):
         '.xls': 'read_excel',
         '.xlsx': 'read_excel',
         '.csv': 'read_csv',
-        '.h5': 'read_hdf'
+        '.h5': 'read_hdf',
+        '.json': 'read_json',
     }
 
     timeout = luigi.IntParameter(default=120)
@@ -50,28 +64,40 @@ class ReadDataFrameTask(Task):
     def get_read_args(self):
         return self.read_args
 
-    def read_dataframe(self, file_obj):
-        with file_obj.open('r') as f:
-            filename = f.name
-            read_method = getattr(pd, self.get_read_method(filename))
+    def read_dataframe(self, path_or_buffer, read_method):
+        if read_method == 'read_excel':
+            wb = open_workbook(path_or_buffer, logfile=self.logger)
+            logger.debug('Workbook %s contains sheets %s' % (path_or_buffer, wb.sheet_names()))
 
-            if read_method == 'read_excel':
-                wb = open_workbook(filename, logfile=self.logger)
-                logger.debug('Workbook %s contains sheets %s' % (filename, wb.sheet_names()))
+        df = read_method(path_or_buffer, **self.get_read_args())
+        logger.debug(f'Successfully read dataframe with shape {df.shape}')
+        return df
 
-            df = read_method(filename, **self.get_read_args())
-            return df
+    def read_target(self, target):
+        try:
+            with target.open('r') as f:
+                filename = f.name
+                read_method = getattr(pd, self.get_read_method(filename))
+                return self.read_dataframe(filename, read_method)
+        except AttributeError:
+            # Target doesn't support open, so assume that it supports `get()`
+            # and that `get()` returns a file-like object
+            # If we have a file-like object then the read_method must be specified explicitly
+            assert self.read_method, 'ReadDataFrame requires an explicit read_method unless there is a local file'
+            read_method = getattr(pd, self.read_method)
+            buffer = target.get()
+            return self.read_dataframe(buffer, read_method)
 
     def run(self):
         targets = self.input()
 
         if isinstance(targets, luigi.Target):
-            self.output().put(self.read_dataframe(targets))
+            self.output().put(self.read_target(targets))
         elif isinstance(targets, dict):
-            output = {key: self.read_dataframe(target) for key, target in targets.items()}
+            output = {key: self.read_target(target) for key, target in targets.items()}
             self.output().put(output)
         elif isinstance(targets, (list, tuple)):
-            output = {os.path.basename(target.path): self.read_dataframe(target) for target in targets}
+            output = {os.path.basename(target.path): self.read_target(target) for target in targets}
             self.output().put(output)
 
 
