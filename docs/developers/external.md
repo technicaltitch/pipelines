@@ -78,7 +78,7 @@ Once the configuration file is setup, you can define `Tasks` to read the remote 
 class KoboReadDataFrame(ReadDataFrameTask):
 
     read_method = 'read_csv'
-    timeout = 60 * 60 * 24  # Set the timeout appropriately
+    timeout = 60 * 60 * 24  # Set the timeout (in seconds) appropriately
 
     def requires(self):
         form = 40
@@ -92,7 +92,7 @@ Note that you must explicitly specify the `read_method`.
 
 You will also want to set the `timeout` appropriately to ensure that
 you are not having to frequently download data from the KoboToolbox
-server it it has not changed.
+server if it has not changed.
 
 Typically, you will
 want to specify a `section` as well. If not, you will be given a dataframe
@@ -113,7 +113,7 @@ upstream dependencies in your `ReadDataFrame`:
 class KoboReadDataFrame(ReadDataFrameTask):
 
     read_method = 'read_csv'
-    timeout = 60 * 60 * 24  # Set the timeout appropriately
+    timeout = 60 * 60 * 24  # Set the timeout (in seconds) appropriately
 
     def requires(self):
         form = 40
