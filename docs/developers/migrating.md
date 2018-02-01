@@ -58,7 +58,7 @@ class SurveyMonthlyHistoricalExternalTask(ExternalTask):
 
     def output(self):
         """
-        Outputs provide data to subsequent Tasks in the pipelinesthat can use them as inputs
+        Outputs provide data to subsequent Tasks in the pipelines that can use them as inputs
         """
         return LocalTarget(
             os.path.join(raw_data_path, 'Monthly Historical Data.xlsx'))
@@ -91,8 +91,8 @@ class MainTask(Task):
     def output(self):
         return ExpiringLocalTarget(
             os.path.join(output_path, 'Monthly Historical Data.h5'),
-            # Pass a timeout (in secornds) to force data to recalculate automatically
-            # when the timeout exires
+            # Pass a timeout (in seconds) to force data to recalculate automatically
+            # when the timeout expires
             timeout=1800,
             # Pass the Task as well to recalculate if the Task source code
             # changes. This appends a hash to the end of the filename.
