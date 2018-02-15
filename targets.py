@@ -343,6 +343,7 @@ class CachedCKAN:
         Context manager to cache session, CKAN metadata and resource status
         """
         self.__in_context_block = True
+        # TODO: create local backup of file in case we can't upload and have to roll back
         return self
 
     def save_resource_statuses(self):
@@ -359,6 +360,7 @@ class CachedCKAN:
         if self.__session:
             self.__session.close()
         self.api.close()
+        # TODO: restore from local backup of file in case we can't upload and have to roll back
 
     @property
     def resource_status_cache_filename(self):
@@ -746,6 +748,7 @@ class CKANTarget(luigi.Target):
                             'auth': auth or config['ckan.auth'],
                             'cache_dir': cache_dir or config['ckan.cache_dir'],
                             'timeout': timeout or config['ckan.timeout'] or config['core.timeout'], })
+        # TODO: with self.cached_ckan as ckan:
         self.cached_ckan = CachedCKAN(**ckan_kwargs)
 
     def exists(self):
@@ -759,21 +762,31 @@ class CKANTarget(luigi.Target):
         # Call CKAN  to delete original resource
         # http://docs.ckan.org/en/latest/api/#ckan.logic.action.delete.resource_delete
         resource_kwargs = self.resource
+        # TODO: with self.cached_ckan as ckan:
         status = self.cached_ckan.delete_resource(**resource_kwargs)
 
     def get(self):
         if self.resource and self.resource['resource_id']:
+            # TODO: with self.cached_ckan as ckan:
             return self.cached_ckan.get_resource(self.resource['resource_id'])
+        # TODO: else: search for resource by package/resource name/title. If found retrieve resource_id and store in self.resource
         return None
 
     def put(self, value):
         resource_kwargs = self.resource
-        resource_kwargs.update({'upload': open(value, 'rb')})
+        if value:
+            resource_kwargs.update({'upload': open(value, 'rb')})
         if self.dataset and self.dataset['package_id']:
             resource_kwargs['package_id'] = self.dataset['package_id']
-        status = self.cached_ckan.create_resource(**resource_kwargs)
+        if self.resource and 'id' not in self.resource:
+            # TODO: with self.cached_ckan as ckan:
+            status = self.cached_ckan.create_resource(**resource_kwargs)
+        else:
+            # TODO: with self.cached_ckan as ckan:
+            status = self.cached_ckan.patch_resource(**resource_kwargs)
         self.resource['id'] = status['id']
         self.dataset['package_id'] = status['package_id']
+        # TODO: create/patch dataset too?
 
 
 # import pprint
