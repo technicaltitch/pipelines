@@ -240,11 +240,11 @@ class CachedCKAN:
 
     def __init__(self, address, username, password, ckan_cache_dir, apikey=None, user_agent=None,
                  get_only=False, check_for_updates_every=None, cache_resources_for=None):
-        # Can't use CAKN API to download resources - must use web UI
+        # Can't use CAKN API to download resources - must use web UI, which doesn't authenticate with token
         self.username = username
         self.password = password
-        self.check_for_updates_every = check_for_updates_every or 60 * 60  # minutes between updating resource metadata
-        self.cache_resources_for = cache_resources_for or 60 * 60  # minutes to keep cached resources after last access
+        self.check_for_updates_every = check_for_updates_every or 60 * 60  # seconds between updating resource metadata
+        self.cache_resources_for = cache_resources_for or 60 * 60  # seconds to keep cached resources after last access
         self.ckan_cache_dir = os.path.abspath(ckan_cache_dir)
         self.api = RemoteCKAN(address, apikey=apikey, user_agent=user_agent, get_only=get_only, session=None)
         self.__metadata = None
@@ -287,7 +287,8 @@ class CachedCKAN:
         """
         Downloads and caches the metadata of all resources the user has access to. Refreshes after self.timeout seconds.
         """
-        # TODO: Simplify the metadata structure to insulate from CKAN API changes?
+        # Simplify the metadata structure to insulate from CKAN API changes?
+        # No - more explicit if done in accessor methods instead, e.g. `self.get_resource_metadata`
         if not self.__metadata and force_download is False:
             self.__metadata = self._unpickle_from_file(self.metadata_cache_filename)
         if not self.__metadata or \
@@ -326,7 +327,7 @@ class CachedCKAN:
     def server_domain(self):
         """
         Returns the domain of the server URL for use in filename cache keys. (`urlparse` behaves inconsistently)
-        :return: If the server URL is http://data.example.com:8080/datasets?foo=bar this returns data.example.com
+        :return: If the server URL is http://data.example.com:8080/datasets?foo=bar this returns data_example_com
         """
         url = self.api.address
         domain_start = url.find('://') + 3 if url.find('://') >= 0 else 0
@@ -335,7 +336,7 @@ class CachedCKAN:
             url.find('?', domain_start) if url.find('?', domain_start) >= 0 else \
             len(url)
         regex = re.compile('[^a-zA-Z0-9\.]')  # being cautious as changing this later will invalidate everyone's cache
-        return regex.sub('_', url[domain_start:domain_end])
+        return regex.sub('_', url[domain_start:domain_end]).lower()
 
     def __enter__(self):
         """
@@ -353,14 +354,10 @@ class CachedCKAN:
             self._pickle_to_file(self.metadata_cache_filename, self.__metadata)
 
     def __exit__(self, type, value, traceback):
-        # Save resource statuses
         self.save_resource_statuses()
-        # Save user's metadata
         self.save_user_metadata()
-        # Close session
         if self.__session:
             self.__session.close()
-        # Close API session
         self.api.close()
 
     @property
@@ -659,61 +656,124 @@ class CachedCKAN:
             self._delete_cache(kwargs['id'])
         return results
 
+"""
+CachedCKAN works - test code is commented below and will be removed.
 
-class CKANTarget(luigi.local_target.LocalTarge):
+I still need to:
+
+ * Finish the file-like (`open('r/w')`) API to CKANTarget
+ * Extend CachedCKAN to retrieve resources by package/dataset and resource names or titles - using local metadata if necessary
+ * I suspect there are offline-related exceptions that need ignoring
+ * Unfortunately the API calls datasets packages - I don't really want to get involved in mapping Target parameters to CKAN API parameters, so while analysts will see 'dataset' in the UI they will need to use 'package' in Target parameters.
+ * Implement pseudocode in CKANTarget outlined below
+ * On creating a resource, store the new resource_id in the Target class so it is picked up from cache by the next task
+ * On entering CachedCKAN, grab a copy of the resource file. On exiting the CachedCKAN context manager, if the file has been deleted, attempt to delete online. If not, ensure that any updates to the file have been uploaded. If they haven't, overwrite with the prior version, possibly also copy the modified version somewhere, and raise an exception.
+ * Validation of the CKANTarget.__init__ parameters
+ * Unit tests
+
+I plan to do the file-like API and store new resource_id in Target for the next task, (and the pseudocode below), so it is ready for use, submit that for your review, then look at what the MVP is from the above - which might mean scrapping the cache for now and requiring analysts to store locally - although I think we'll want the cache at some point and it works nicely.
+
+#### Overview of `CachedCKAN`
+
+The cache timeout is the frequency with which we should update the CKAN metadata. The metadata tells us whether a particular resource is out of date or not. Resources are updated on demand, if there is a connection and if the latest version of the metadata indicates our copy is out of date. Local copies of CKAN metadata and resource last downloaded times are kept pickled in the cache directory.
+
+#### Pseudocode of `CKANTarget`
+
+All but the name/title search is implemented and working in `CachedCKAN`.
+
+```
+if mode='w':
+    if resource_id:
+        call resource_patch
+        call package_patch
+    elif package_id:
+        call package_patch
+        if resource_file:
+            call resource_create passing package_id
+    elif resource_file or resource_metadata:
+        call package_create
+        call resource_create passing new package_id, and file if present
+    elif package_metadata:
+        call package_create
+elif mode='r':
+    if resource_id:
+        call resource_get (retrieves metadata and downloads file if necessary otherwise opens local cached version)
+    else:
+        call CachedCKAN.search(package_name='', resource_name='', package_title='', resource_title='') - tries online API else searches local cache, caches and returns resource file
+```
+"""
+
+
+class CKANTarget(luigi.Target):
     """
     A Luigi Target that stores data in a CKAN Instance.
     """
 
-    def __init__(self, server, auth=None, username=None, password=None, resource=None, dataset=None, timeout=None, **kwargs):
+    def __init__(self, address, auth=None, username=None, password=None, resource=None, dataset=None, timeout=None,
+                 cache_dir=None, **kwargs):
+        """
+        :param address:
+        :param auth:
+        :param username:
+        :param password:
+        :param resource:
+            Example `resource` dict:
+            {
+                name='a test resource upload',
+                package_id='c86186f4-8368-4ecc-a907-08ca67d0e7ab',
+                upload=open('/Users/technicaltitch/Documents/Kimetrica/rm/rmluigi/rm/pipelines/cache/data.kimetrica.com/e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2/test-data.xlsx', 'rb')
+            }
+        :param dataset:
+            Example `package` dict (a 'package' is called a 'dataset' in the browser interface):
+            {
+                name='chris_test',
+                title='Chris test data',
+                author='arthur',
+                version='1.3c',
+                id='c86186f4-8368-4ecc-a907-08ca67d0e7ab'
+            }
+        :param timeout:
+        :param cache_dir:
+        :param kwargs:
+        """
+
         self.resource = resource
-        self.dataset = dataset or config['ckan.personal_dataset']
-        self.server = server or config['ckan.server']
-        self.username = username or config['ckan.username']
-        self.password = password or config['ckan.password']
-        self.auth = auth or config['ckan.auth']
-        self.timeout = timeout or config['ckan.timeout'] or config['core.timeout']
-        self.kwargs = kwargs
-        self.cached_ckan = CachedCKAN(**kwargs)
-
-    def open(self, mode='r', patch=True):
-        rwmode = mode.replace('b', '').replace('t', '')
-        if rwmode == 'w':
-
-            # To add:
-            # if resource not in metadata: validate name; http://docs.ckan.org/en/latest/api/#ckan.logic.action.create.resource_create
-            # elif patch: http://docs.ckan.org/en/latest/api/#ckan.logic.action.patch.resource_patch
-            # else: http://docs.ckan.org/en/latest/api/#ckan.logic.action.update.resource_update
-
-            # We are writing a new file, so remove files for this path but a different code version
-            basename, extension = os.path.splitext(self.original_path)
-            for f in glob.glob(basename + '_[0-9a-f]*' + extension):
-                if re.match(basename + '_[a-f0-9]{32}' + extension, f) and f != self.path:
-                    logger.debug("ExpiringLocalTarget '%s' is obsolete and has been removed" % f)
-                    os.remove(f)
-        return super().open(mode)
+        self.dataset = dataset or {'package_id': config['ckan.personal_dataset_id']}
+        ckan_kwargs = kwargs
+        ckan_kwargs.update({'address': address or config['ckan.address'],
+                            'username': username or config['ckan.username'],
+                            'password': password or config['ckan.password'],
+                            'auth': auth or config['ckan.auth'],
+                            'cache_dir': cache_dir or config['ckan.cache_dir'],
+                            'timeout': timeout or config['ckan.timeout'] or config['core.timeout'], })
+        self.cached_ckan = CachedCKAN(**ckan_kwargs)
 
     def exists(self):
-        exists = super().exists()
-        if exists:
-            mtime = os.path.getmtime(self.path)
-            if mtime + self.timeout < time.time():
-                logger.debug("ExpiringLocalTarget '%s' has expired" % self.path)
-                exists = False
-                self.remove()
-        return exists
+        # The purpose of this method is to inform the scheduler whether it needs to run the prior task to generate this
+        # resource.
+        # TODO: What if we have a locally generated copy but no connection so we can't upload?
+        return bool(self.get())
 
     def remove(self):
         # delete a remote CKAN resource
         # Call CKAN  to delete original resource
         # http://docs.ckan.org/en/latest/api/#ckan.logic.action.delete.resource_delete
-        super(CKANTarget).remove()
+        resource_kwargs = self.resource
+        status = self.cached_ckan.delete_resource(**resource_kwargs)
 
-    def move(self, new_path, raise_if_exists=False):
-        self.fs.move(self.path, new_path, raise_if_exists=raise_if_exists)
+    def get(self):
+        if self.resource and self.resource['resource_id']:
+            return self.cached_ckan.get_resource(self.resource['resource_id'])
+        return None
 
-    def move_dir(self, new_path):
-        self.move(new_path)
+    def put(self, value):
+        resource_kwargs = self.resource
+        resource_kwargs.update({'upload': open(value, 'rb')})
+        if self.dataset and self.dataset['package_id']:
+            resource_kwargs['package_id'] = self.dataset['package_id']
+        status = self.cached_ckan.create_resource(**resource_kwargs)
+        self.resource['id'] = status['id']
+        self.dataset['package_id'] = status['package_id']
 
 
 # import pprint
