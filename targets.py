@@ -253,6 +253,7 @@ class CachedCKAN:
         self.ckan_cache_dir = os.path.abspath(ckan_cache_dir)
         self.api = RemoteCKAN(address, apikey=apikey, user_agent=user_agent, get_only=get_only, session=None)
         self.__metadata = None
+        self.__metadata_last_updated = None
         self.__local_resource_status = None
         self.__session = None
         # if user does not use CachedCKAN in a `with` context, we need to materialize metadata caches to disk on every update
@@ -295,26 +296,29 @@ class CachedCKAN:
         # Simplify the metadata structure to insulate from CKAN API changes?
         # No - more explicit if done in accessor methods instead, e.g. `self.get_resource_metadata`
         if not self.__metadata and force_download is False:
-            self.__metadata = self._unpickle_from_file(self.metadata_cache_filename)
+            self.load_user_metadata()
         if not self.__metadata or \
                 force_download or \
-                (self.__metadata['metadata_last_updated'] + datetime.timedelta(seconds=self.check_for_updates_every) <
+                (self.__metadata_last_updated + datetime.timedelta(seconds=self.check_for_updates_every) <
                  datetime.datetime.utcnow()):
             try:
-                metadata = self.api.action.current_package_list_with_resources()
+                # current_package_list_with_resources gets public resources only, not private ones
+                # This returns a list of datasets, and within each there is a 'resources' key with a list of resources
+                metadata = self.api.action.package_search(include_private=True)['results']
             except requests.exceptions.ConnectionError as e:
                 error = \
                     'Unable to reach CKAN and no local copy of CKAN metadata found at %s' % self.metadata_cache_filename
                 logging.exception(error)
                 raise Exception('%s\n%s' % (error, str(e)))
 
-            self.__metadata = {'metadata_last_updated': datetime.datetime.utcnow()}
-            # more efficient to pickle.dump to file twice, to avoid unpickling expired data, but unnecessary here
+            self.__metadata_last_updated = datetime.datetime.utcnow()
+            # more efficient to pickle.dump to file twice, to avoid unpickling expired data, but unnecessary here and complicates structure
+
             for dataset in metadata:
                 for resource in dataset['resources']:
-                    # Internal references are maintained, so pickle does not unpickle the nested dataset dicts multiple
-                    # times, ie, after unpickling, `(meta['resource_a']['dataset'] is meta['resource_b']['dataset'])`
+                    # After unpickling, `(meta['resource_a']['dataset'] is meta['resource_b']['dataset'])`
                     resource['dataset'] = dataset
+                    # Result is {resource_id: {resource}} where resource['dataset'] = {dataset}
                     self.__metadata[resource['id']] = resource
             if not self.__in_context_block:
                 self.save_user_metadata()
@@ -357,7 +361,10 @@ class CachedCKAN:
 
     def save_user_metadata(self):
         if self.__metadata:
-            self._pickle_to_file(self.metadata_cache_filename, self.__metadata)
+            self._pickle_to_file(self.metadata_cache_filename, (self.__metadata_last_updated, self.__metadata))
+
+    def load_user_metadata(self):
+        self.__metadata_last_updated, self.__metadata = self._unpickle_from_file(self.metadata_cache_filename)
 
     def __exit__(self, type, value, traceback):
         self.save_resource_statuses()
@@ -381,6 +388,23 @@ class CachedCKAN:
 
     def get_resource_metadata(self, resource_id):
         return self.get_ckan_metadata()[resource_id]
+
+    def find_package(self, package_title):
+        metadata = self.get_ckan_metadata()
+        results = []
+        for resource in metadata:
+            if resource['dataset']['title'] == package_title:
+                results.append(resource['dataset'])
+        return results[0] if len(results) == 1 else results
+
+    def find_resource(self, resource_name, package_title=None):
+        metadata = self.get_ckan_metadata()
+        results = []
+        for resource in metadata:
+            if resource['name'] == resource_name:
+                if package_title is None or resource['dataset']['title'] == package_title:
+                    results.append(resource)
+        return results[0] if len(results) == 1 else results
 
     def get_resource_last_updated(self, resource_id):
         # CKAN doesn't correctly report resource last_modified: https://github.com/ckan/ckan/issues/3907
@@ -715,7 +739,7 @@ class CKANTarget(luigi.Target):
     A Luigi Target that stores and retrieves data from a (cached) CKAN Instance.
     """
 
-    def __init__(self, address, auth=None, username=None, password=None, resource=None, package=None, timeout=None,
+    def __init__(self, address, auth=None, username=None, password=None, resource=None, dataset=None, timeout=None,
                  cache_dir=None, overwrite=False, **kwargs):
         """
         :param address: the URL for the CKAN server
@@ -731,8 +755,8 @@ class CKANTarget(luigi.Target):
                 package_id='c86186f4-8368-4ecc-a907-08ca67d0e7ab',
                 upload=open('/Users/technicaltitch/Documents/Kimetrica/rm/rmluigi/rm/pipelines/cache/data.kimetrica.com/e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2/test-data.xlsx', 'rb')
             }
-        :param package:
-            Example `package` dict (a 'dataset' is called a 'package' when using the CKAN API):
+        :param dataset:
+            Example `dataset` dict:
             {
                 name='chris_test',
                 title='Chris test data',
@@ -744,10 +768,14 @@ class CKANTarget(luigi.Target):
         :param cache_dir: local directory in which CKAN cache is stored - should be shared by all users
         :param overwrite: has to be set to True to permit overwriting an existing resource
         :param kwargs: extra parameters for initializing the CKAN API
+
+        Note: A 'dataset' is called a 'package' when using the CKAN API. CKANTarget uses 'dataset' except when using
+        data structures that are compatible with the native CKAN API, such as a native resource metadata dict, which
+        CKANTarget does not attempt to translate.
         """
 
         self.resource = resource or {}
-        self.package = package or {'id': config['ckan.default_package_id']}
+        self.dataset = dataset or {'id': config['ckan.default_dataset_id']}
         self.ckan_kwargs = kwargs or {}
         self.overwrite = overwrite
         self.ckan_kwargs.update({'address': address or config['ckan.address'],
@@ -759,14 +787,33 @@ class CKANTarget(luigi.Target):
 
     @property
     def resource_id(self):
-        # TODO: if 'id' not in self.resource or not self.resource['id']: self.resource['id'] = ckan.find_resource(self.resource)['id']
+        if 'id' not in self.resource or not self.resource['id']:
+            resource_name = self.resource['name']
+            dataset_title = self.dataset_title
+            with CachedCKAN(**self.ckan_kwargs) as ckan:
+                self.resource['id'] = ckan.find_resource(resource_name, dataset_title)['id']
         return self.resource['id']
 
     @property
-    def package_id(self):
-        # TODO: if 'package_id' not in self.resource and 'id' not in self.package or (not self.resource['package_id'] and not self.package['id']:
-        # self.package['id'] = ckan.find_package(self.package)['id'] or ckan.find_resource(self.resource)['package_id']
-        return self.resource['package_id'] or self.package['id']
+    def dataset_title(self):
+        return self.resource.get('dataset', {}).get('title', None) or self.dataset.get('title', None)
+
+    @property
+    def dataset_id(self):
+        dataset_id = self.dataset.get('id', None) or \
+                     self.resource.get('package_id', None) or \
+                     self.resource.get('dataset', {}).get('id', None)
+
+        if not dataset_id:
+            with CachedCKAN(**self.ckan_kwargs) as ckan:
+                dataset_id = ckan.find_package(self.dataset_title)['id']
+                if not dataset_id:
+                    resource_name = self.resource['name']
+                    dataset_title = self.dataset_title
+                    dataset_id = ckan.find_resource(resource_name, dataset_title)['package_id']
+
+        self.package['id'] = dataset_id
+        return dataset_id
 
     def exists(self):
         # The purpose of this method is to inform the scheduler whether it needs to run the prior task to generate this
@@ -791,8 +838,8 @@ class CKANTarget(luigi.Target):
         resource_kwargs = self.resource
         if file_path:
             resource_kwargs['upload'] = open(file_path, 'rb')
-        if self.package_id:
-            resource_kwargs['package_id'] = self.package_id
+        if self.dataset_id:
+            resource_kwargs['package_id'] = self.dataset_id
         if self.resource_id:
             if self.overwrite:
                 with CachedCKAN(**self.ckan_kwargs) as ckan:
@@ -806,8 +853,8 @@ class CKANTarget(luigi.Target):
             with CachedCKAN(**self.ckan_kwargs) as ckan:
                 status = ckan.create_resource(**resource_kwargs)
         self.resource['id'] = status['id']
-        self.package['package_id'] = status['package_id']
-        # TODO: Create/patch package too? How indicate in CKANTarget API?
+        self.resource['package_id'] = self.dataset['id'] = status['package_id']
+        # TODO: Create/patch dataset too? How indicate in CKANTarget API?
 
 
 import pprint
@@ -850,7 +897,7 @@ class Two(luigi.Task):
 luigi.build([Two()], workers=1, local_scheduler=True)
 
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='fc660a1a-cf95-4057-ba0e-43bae1aa5eac') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     pprint.pprint(
 #         ckan.patch_package(name='chris_test',
 #                             title='Chris test data',
@@ -860,7 +907,7 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #         )
 #     )
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='fc660a1a-cf95-4057-ba0e-43bae1aa5eac') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     pprint.pprint(
 #         ckan.update_resource(
 #             name='another updated resource',
@@ -869,7 +916,7 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #         )
 #     )
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='fc660a1a-cf95-4057-ba0e-43bae1aa5eac') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     ckan.create_package(name='joe_data',
 #                         title='Joe data',
 #                         author='joe',
@@ -880,7 +927,7 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #                                    'application/vnd.ms-excel',
 #                                    {'Expires': '0'}))
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='fc660a1a-cf95-4057-ba0e-43bae1aa5eac') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     ckan.create_package(name='joe_data',
 #                         title='Joe data',
 #                         author='joe',
@@ -888,13 +935,13 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #                         format='XLSX',
 #                         other_test_data=open('/Users/technicaltitch/Documents/Kimetrica/rm/rmluigi/rm/pipelines/cache/data.kimetrica.com/e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2/test-data.xlsx', 'rb'))
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='fc660a1a-cf95-4057-ba0e-43bae1aa5eac') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     print(ckan.create_resource(
 #             name='a test resource upload',
 #             package_id='c86186f4-8368-4ecc-a907-08ca67d0e7ab',
 #             upload=open('/Users/technicaltitch/Documents/Kimetrica/rm/rmluigi/rm/pipelines/cache/data.kimetrica.com/e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2/test-data.xlsx', 'rb')))
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='fc660a1a-cf95-4057-ba0e-43bae1aa5eac') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     print(ckan.get_resource('e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2'))
 #     print(ckan.get_resource_metadata('e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2'))
 
