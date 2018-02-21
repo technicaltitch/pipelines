@@ -777,7 +777,7 @@ class CkanTarget(luigi.Target):
     def dataset_id(self):
         dataset_id = self.dataset.get('id', None) or \
                      self.resource.get('package_id', None) or \
-                     self.resource.get('dataset', {}).get('id', None)
+                     self.resource.get('dataset', {}).get('id', None)  # NOQA
 
         if not dataset_id:
             with CachedCKAN(**self.ckan_kwargs) as ckan:
@@ -819,8 +819,10 @@ class CkanTarget(luigi.Target):
                     return GetFromCkan()
 
                 def output(self):
-                    filename = 'TstCknDld%s' % datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
-                    return luigi.LocalTarget(filename, format=luigi.format.Nop)  # Nop: https://github.com/spotify/luigi/issues/1647
+                    filename = 'TstCknDld%s' % \
+                               datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
+                    # Nop: https://github.com/spotify/luigi/issues/1647
+                    return luigi.LocalTarget(filename, format=luigi.format.Nop)
 
                 def run(self):
                     with open(self.input().get(), 'rb') as in_file, self.output().open('wb') as out_file:
@@ -843,7 +845,8 @@ class CkanTarget(luigi.Target):
                     return GetFromCkan()
 
                 def output(self):
-                    name = 'Test upload at %s' % datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
+                    name = 'Test upload at %s' % \
+                           datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
                     return CkanTarget(address='https://data.kimetrica.com', username='user', password='pwd',
                                       cache_dir='cache', apikey='123abc45-abcd-418f-ac2e-70bbd629c277',
                                       dataset={'id': 'c86186f4-8368-4ecc-a907-08ca67d0e7ab'},
@@ -886,4 +889,4 @@ class CkanTarget(luigi.Target):
         :return: None
         """
         with CachedCKAN(**self.ckan_kwargs) as ckan:
-            status = ckan.delete_resource(resource_id=self.resource_id)
+            ckan.delete_resource(resource_id=self.resource_id)
