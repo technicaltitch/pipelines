@@ -230,27 +230,27 @@ class RESTTarget(luigi.target.Target):
         return BytesIO(response.content)
 
 
-# TODO:
-#   Upload:
-#    * create resource, optionally also creating dataset/package
-#    * update resource metadata and/or file - metadata patch or update
-#    * delete resource? dataset/package?
-#    * integrate with luigi Target by receiving / returning file path and metadata
-
-
 class CachedCKAN:
 
     RESOURCE_STATUS_FILE = 'local_resource_status.pickle'
     METADATA_FILE = 'metadata_%s.pickle'  # % username
 
-    def __init__(self, address, username, password, ckan_cache_dir, apikey=None, user_agent=None,
+    def __init__(self, address, username, password, cache_dir, apikey=None, user_agent=None,
                  get_only=False, check_for_updates_every=None, cache_resources_for=None):
+
+        try:
+            r = requests.head(address, timeout=30)
+        except requests.exceptions.ConnectionError as e:
+            error = 'Unable to reach CKAN server. CkanTarget requires a working connection to the server.'
+            logging.exception(error)
+            raise Exception('%s\n%s' % (error, str(e)))
+
         # Can't use CAKN API to download resources - must use web UI, which doesn't authenticate with token
         self.username = username
         self.password = password
         self.check_for_updates_every = check_for_updates_every or 60 * 60  # seconds between updating resource metadata
         self.cache_resources_for = cache_resources_for or 60 * 60  # seconds to keep cached resources after last access
-        self.ckan_cache_dir = os.path.abspath(ckan_cache_dir)
+        self.cache_dir = os.path.abspath(cache_dir)
         self.api = RemoteCKAN(address, apikey=apikey, user_agent=user_agent, get_only=get_only, session=None)
         self.__metadata = None
         self.__metadata_last_updated = None
@@ -314,12 +314,15 @@ class CachedCKAN:
             self.__metadata_last_updated = datetime.datetime.utcnow()
             # more efficient to pickle.dump to file twice, to avoid unpickling expired data, but unnecessary here and complicates structure
 
+            self.__metadata = dict()
             for dataset in metadata:
                 for resource in dataset['resources']:
                     # After unpickling, `(meta['resource_a']['dataset'] is meta['resource_b']['dataset'])`
                     resource['dataset'] = dataset
-                    # Result is {resource_id: {resource}} where resource['dataset'] = {dataset}
                     self.__metadata[resource['id']] = resource
+
+            # self.__metadata = {resource_id: {resource}} where resource['dataset'] = {dataset} for all CKAN resources
+
             if not self.__in_context_block:
                 self.save_user_metadata()
         return self.__metadata
@@ -364,7 +367,11 @@ class CachedCKAN:
             self._pickle_to_file(self.metadata_cache_filename, (self.__metadata_last_updated, self.__metadata))
 
     def load_user_metadata(self):
-        self.__metadata_last_updated, self.__metadata = self._unpickle_from_file(self.metadata_cache_filename)
+        try:
+            self.__metadata_last_updated, self.__metadata = self._unpickle_from_file(self.metadata_cache_filename)
+        except TypeError:  # file not found / pickle error
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(self.metadata_cache_filename)  # remove for re-download
 
     def __exit__(self, type, value, traceback):
         self.save_resource_statuses()
@@ -376,18 +383,21 @@ class CachedCKAN:
 
     @property
     def resource_status_cache_filename(self):
-        return os.path.join(self.ckan_cache_dir, self.server_domain, self.RESOURCE_STATUS_FILE)
+        return os.path.join(self.cache_dir, self.server_domain, self.RESOURCE_STATUS_FILE)
 
     @property
     def metadata_cache_filename(self):
-        return os.path.join(self.ckan_cache_dir, self.server_domain, self.METADATA_FILE % self.username)
+        return os.path.join(self.cache_dir, self.server_domain, self.METADATA_FILE % self.username)
 
     @property
     def iso_utc_datetime(self):
         return datetime.datetime.utcnow().replace(microsecond=0).isoformat()  # .replace(':', '.')
 
     def get_resource_metadata(self, resource_id):
-        return self.get_ckan_metadata()[resource_id]
+        try:
+            return self.get_ckan_metadata()[resource_id]
+        except KeyError:
+            raise RuntimeError('Resource ID %s metadata not found.' % resource_id)
 
     def find_package(self, package_title):
         metadata = self.get_ckan_metadata()
@@ -432,7 +442,7 @@ class CachedCKAN:
             raise RuntimeError('Login failed.')
 
     def get_resource_cache_path(self, resource_id, create=False):
-        path = os.path.abspath(os.path.join(self.ckan_cache_dir, self.server_domain, resource_id))
+        path = os.path.abspath(os.path.join(self.cache_dir, self.server_domain, resource_id))
         if create:
             with contextlib.suppress(OSError):
                 os.makedirs(path)
@@ -455,7 +465,7 @@ class CachedCKAN:
     def _delete_cache(self, resource_id=None):
         if resource_id is None:
             logging.warning('CachedCKAN._delete_cache called with no resource_id - deleting WHOLE cache.')
-        cache_path = self.get_resource_cache_path(resource_id) if resource_id else self.ckan_cache_dir
+        cache_path = self.get_resource_cache_path(resource_id) if resource_id else self.cache_dir
         with contextlib.suppress(FileNotFoundError):
             for cache_file in os.listdir(cache_path):
                 if os.path.isdir(cache_file):
@@ -686,64 +696,17 @@ class CachedCKAN:
         self._delete_cache(resource_id=resource_id)
         return results
 
-"""
-CachedCKAN works - test code is commented below and will be removed.
 
-I still need to:
-
- * Finish the file-like (`open('r/w')`) API to CKANTarget
- * Extend CachedCKAN to retrieve resources by package/dataset and resource names or titles - using local metadata if necessary
- * I suspect there are offline-related exceptions that need ignoring
- * Unfortunately the API calls datasets packages - I don't really want to get involved in mapping Target parameters to CKAN API parameters, so while analysts will see 'dataset' in the UI they will need to use 'package' in Target parameters.
- * Implement pseudocode in CKANTarget outlined below
- * On creating a resource, store the new resource_id in the Target class so it is picked up from cache by the next task
- * On entering CachedCKAN, grab a copy of the resource file. On exiting the CachedCKAN context manager, if the file has been deleted, attempt to delete online. If not, ensure that any updates to the file have been uploaded. If they haven't, overwrite with the prior version, possibly also copy the modified version somewhere, and raise an exception.
- * Validation of the CKANTarget.__init__ parameters
- * Unit tests
-
-I plan to do the file-like API and store new resource_id in Target for the next task, (and the pseudocode below), so it is ready for use, submit that for your review, then look at what the MVP is from the above - which might mean scrapping the cache for now and requiring analysts to store locally - although I think we'll want the cache at some point and it works nicely.
-
-#### Overview of `CachedCKAN`
-
-The cache timeout is the frequency with which we should update the CKAN metadata. The metadata tells us whether a particular resource is out of date or not. Resources are updated on demand, if there is a connection and if the latest version of the metadata indicates our copy is out of date. Local copies of CKAN metadata and resource last downloaded times are kept pickled in the cache directory.
-
-#### Pseudocode of `CKANTarget`
-
-All but the name/title search is implemented and working in `CachedCKAN`.
-
-```
-if mode='w':
-    if resource_id:
-        call resource_patch
-        call package_patch
-    elif package_id:
-        call package_patch
-        if resource_file:
-            call resource_create passing package_id
-    elif resource_file or resource_metadata:
-        call package_create
-        call resource_create passing new package_id, and file if present
-    elif package_metadata:
-        call package_create
-elif mode='r':
-    if resource_id:
-        call resource_get (retrieves metadata and downloads file if necessary otherwise opens local cached version)
-    else:
-        call CachedCKAN.search(package_name='', resource_name='', package_title='', resource_title='') - tries online API else searches local cache, caches and returns resource file
-```
-"""
-
-
-class CKANTarget(luigi.Target):
+class CkanTarget(luigi.Target):
     """
     A Luigi Target that stores and retrieves data from a (cached) CKAN Instance.
     """
 
-    def __init__(self, address, auth=None, username=None, password=None, resource=None, dataset=None, timeout=None,
-                 cache_dir=None, overwrite=False, **kwargs):
+    def __init__(self, address, api_key=None, username=None, password=None, resource=None, dataset=None,
+                 check_for_updates_every=None, cache_dir=None, overwrite=False, **kwargs):
         """
         :param address: the URL for the CKAN server
-        :param auth:
+        :param api_key:
         :param username:
         :param password:
         :param resource:
@@ -764,26 +727,27 @@ class CKANTarget(luigi.Target):
                 version='1.3c',
                 id='c86186f4-8368-4ecc-a907-08ca67d0e7ab'
             }
-        :param timeout: of CKAN metadata in seconds
+        :param check_for_updates_every: of CKAN metadata in seconds
         :param cache_dir: local directory in which CKAN cache is stored - should be shared by all users
         :param overwrite: has to be set to True to permit overwriting an existing resource
         :param kwargs: extra parameters for initializing the CKAN API
 
-        Note: A 'dataset' is called a 'package' when using the CKAN API. CKANTarget uses 'dataset' except when using
+        Note: A 'dataset' is called a 'package' when using the CKAN API. CkanTarget uses 'dataset' except when using
         data structures that are compatible with the native CKAN API, such as a native resource metadata dict, which
-        CKANTarget does not attempt to translate.
+        CkanTarget does not attempt to translate.
         """
 
         self.resource = resource or {}
-        self.dataset = dataset or {'id': config['ckan.default_dataset_id']}
+        self.dataset = dataset or {'id': config['ckan']['default_dataset_id']}
         self.ckan_kwargs = kwargs or {}
         self.overwrite = overwrite
-        self.ckan_kwargs.update({'address': address or config['ckan.address'],
-                                 'username': username or config['ckan.username'],
-                                 'password': password or config['ckan.password'],
-                                 'auth': auth or config['ckan.auth'],
-                                 'cache_dir': cache_dir or config['ckan.cache_dir'],
-                                 'timeout': timeout or config['ckan.timeout'] or config['core.timeout'], })
+        self.ckan_kwargs.update({'address': address or config['ckan']['address'],
+                                 'username': username or config['ckan']['username'],
+                                 'password': password or config['ckan']['password'],
+                                 'apikey': api_key or config['ckan']['api_key'],
+                                 'cache_dir': cache_dir or config['ckan']['cache_dir'],
+                                 'check_for_updates_every': check_for_updates_every or
+                                                            int(config['ckan']['check_for_updates_every']), })
 
     @property
     def resource_id(self):
@@ -818,7 +782,6 @@ class CKANTarget(luigi.Target):
     def exists(self):
         # The purpose of this method is to inform the scheduler whether it needs to run the prior task to generate this
         # resource.
-        # TODO: Offline mode should be able to run offline (so pass files from task to task), but not upload and get resource id, and expire files after a few seconds
         return bool(self.get())
 
     def remove(self):
@@ -845,42 +808,70 @@ class CKANTarget(luigi.Target):
                 with CachedCKAN(**self.ckan_kwargs) as ckan:
                     status = ckan.patch_resource(**resource_kwargs)
             else:
-                msg = ('Existing CKAN resource %s specified, but `overwrite=False`, so `CKANTarget.put` failed.'
-                       'Change the resource `name`, or set `overwrite=True` to fix.' % self.resource.get('name', self.resource_id))
+                msg = ('Existing CKAN resource %s specified, but `overwrite=False`, so `CkanTarget.put` failed.'
+                       'Change the resource `name`, or set `overwrite=True` to fix.' %
+                       self.resource.get('name', self.resource_id))
                 logging.error(msg)
                 raise Exception(msg)
         else:
+            # TODO: Offline mode should be able to run offline (so pass files from task to task), without uploading
+            # and getting a resource id, and expiring files after a few seconds
             with CachedCKAN(**self.ckan_kwargs) as ckan:
                 status = ckan.create_resource(**resource_kwargs)
         self.resource['id'] = status['id']
         self.resource['package_id'] = self.dataset['id'] = status['package_id']
-        # TODO: Create/patch dataset too? How indicate in CKANTarget API?
+        # TODO: Create/patch dataset too? How indicate in CkanTarget API?
 
+
+class FromCkan(luigi.ExternalTask):
+    def output(self):
+        print('Task FromCkan output()')
+        return CkanTarget(address='https://data.kimetrica.com', username='chrisp', password='wR$6*jf!',
+                          cache_dir='cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277',
+                          resource={'id': '2b849629-6d06-41b3-abf9-d8ade78868fd'})
+
+class TestCkanDownload(luigi.Task):
+    def requires(self):
+        print("TestCkanDownload.requiring FromCkan()")
+        return FromCkan()
+    def run(self):
+        print('Task TestCkanDownload getting result: %s' % self.input().get())
+        with open(self.input().get(), 'rb') as in_file, self.output().open('wb') as out_file:
+            for l in in_file:
+                out_file.write(l)
+    def output(self):
+        filename = 'TstCknDld%s' % datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
+        print("TestCkanDownload.output() to %s" % filename)
+        return luigi.LocalTarget(filename, format=luigi.format.Nop)  # https://github.com/spotify/luigi/issues/1647
+
+
+if __name__ == '__main__':
+    luigi.build([TestCkanDownload()], workers=1, local_scheduler=True)
 
 import pprint
 
 ckan_target = dict()
 
 import luigi
-class CKANTarget(luigi.Target):
+class FakeCkanTarget(luigi.Target):
     def __init__(self, name, cache=None):
         print("Init name %s" % name)
         self.name = name
         self.cache = cache or ckan_target
     def exists(self):
-        print("Checking CKANTarget %s .exists(), returning %s" % (self.name, self.name in self.cache))
+        print("Checking FakeCkanTarget %s .exists(), returning %s" % (self.name, self.name in self.cache))
         return self.name in self.cache
     def put(self, value):
-        print("CKANTarget.putting value %s" % value)
+        print("FakeCkanTarget.putting value %s" % value)
         self.cache[self.name] = value
     def get(self):
-        print("CKANTarget %s .getting value %s" % (self.name, self.cache[self.name]))
+        print("FakeCkanTarget %s .getting value %s" % (self.name, self.cache[self.name]))
         return self.cache[self.name]
 
 class One(luigi.Task):
     def output(self):
         print("Creating Target in One.output()")
-        return CKANTarget(name='x')
+        return FakeCkanTarget(name='x')
     def run(self):
         print("Running One.run() - outputting 'y'")
         self.output().put('y')
@@ -894,10 +885,13 @@ class Two(luigi.Task):
     def output(self):
         return None
 
-luigi.build([Two()], workers=1, local_scheduler=True)
+
+# if __name__ == '__main__':
+#     luigi.build([Two()], workers=1, local_scheduler=True)
 
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache',
+#                 apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     pprint.pprint(
 #         ckan.patch_package(name='chris_test',
 #                             title='Chris test data',
@@ -907,7 +901,8 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #         )
 #     )
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache',
+#                 apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     pprint.pprint(
 #         ckan.update_resource(
 #             name='another updated resource',
@@ -916,7 +911,8 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #         )
 #     )
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache',
+#                 apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     ckan.create_package(name='joe_data',
 #                         title='Joe data',
 #                         author='joe',
@@ -927,7 +923,8 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #                                    'application/vnd.ms-excel',
 #                                    {'Expires': '0'}))
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache',
+#                 apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     ckan.create_package(name='joe_data',
 #                         title='Joe data',
 #                         author='joe',
@@ -935,13 +932,15 @@ luigi.build([Two()], workers=1, local_scheduler=True)
 #                         format='XLSX',
 #                         other_test_data=open('/Users/technicaltitch/Documents/Kimetrica/rm/rmluigi/rm/pipelines/cache/data.kimetrica.com/e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2/test-data.xlsx', 'rb'))
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache',
+#                 apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     print(ckan.create_resource(
 #             name='a test resource upload',
 #             package_id='c86186f4-8368-4ecc-a907-08ca67d0e7ab',
 #             upload=open('/Users/technicaltitch/Documents/Kimetrica/rm/rmluigi/rm/pipelines/cache/data.kimetrica.com/e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2/test-data.xlsx', 'rb')))
 
-# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache', apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
+# with CachedCKAN('https://data.kimetrica.com', 'chrisp', 'wR$6*jf!', 'cache',
+#                 apikey='995fcc92-aace-418f-ac2e-70bbd629c277') as ckan:
 #     print(ckan.get_resource('e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2'))
 #     print(ckan.get_resource_metadata('e2cbc4be-2bb3-47c4-a64a-b61f82a8a0e2'))
 
