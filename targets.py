@@ -887,28 +887,3 @@ class CkanTarget(luigi.Target):
         """
         with CachedCKAN(**self.ckan_kwargs) as ckan:
             ckan.delete_resource(resource_id=self.resource_id)
-
-
-class FromCkanByResourceName(luigi.ExternalTask):
-    def output(self):
-        print('Task FromCkanByResourceName output()')
-        return CkanTarget(address='https://data.kimetrica.com', username='chrisp', password='wR$6*jf!',
-                          cache_dir='cache', resource={'name': 'a test resource upload'})
-
-class TestCkanDownloadByResourceName(luigi.Task):
-    def requires(self):
-        print("TestCkanDownloadByResourceName.requiring FromCkanById()")
-        return FromCkanByResourceName()
-    def run(self):
-        print('Task TestCkanDownloadByResourceName getting result: %s' % self.input().get())
-        with open(self.input().get(), 'rb') as in_file, self.output().open('wb') as out_file:
-            for l in in_file:
-                out_file.write(l)
-    def output(self):
-        filename = 'TstCknDld%s' % datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
-        print("TestCkanDownloadByResourceName.output() to %s" % filename)
-        return luigi.LocalTarget(filename, format=luigi.format.Nop)  # Nop: https://github.com/spotify/luigi/issues/1647
-
-
-if __name__ == '__main__':
-    luigi.build([TestCkanDownloadByResourceName()], workers=1, local_scheduler=True)
