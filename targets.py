@@ -238,29 +238,33 @@ class CachedCKAN:
     RESOURCE_STATUS_FILE = 'local_resource_status.pickle'
     METADATA_FILE = 'metadata_%s.pickle'  # % username
 
-    def __init__(self, address, username, password, cache_dir, apikey=None, user_agent=None,
+    def __init__(self, address, username, password, cache_dir, user_agent=None,
                  get_only=False, check_for_updates_every=None, cache_resources_for=None):
 
         try:
             r = requests.head(address, timeout=30)
-        except requests.exceptions.ConnectionError as e:
+            r.raise_for_status()
+        except requests.exceptions.RequestException as e:
             error = 'Unable to reach CKAN server. CkanTarget requires a working connection to the server.'
             logging.error(error)
             raise RuntimeError('%s\n%s' % (error, str(e)))
 
-        # Can't use CAKN API to download resources - must use web UI, which doesn't authenticate with token
+        # Can't use CKAN API to download resources - must use web UI, which doesn't authenticate with token
         self.username = username
         self.password = password
         self.check_for_updates_every = check_for_updates_every or 60 * 60  # seconds between updating resource metadata
         self.cache_resources_for = cache_resources_for or 60 * 60  # seconds to keep cached resources after last access
         self.cache_dir = os.path.abspath(cache_dir)
-        self.api = RemoteCKAN(address, apikey=apikey, user_agent=user_agent, get_only=get_only, session=None)
-        self.__metadata = None
-        self.__metadata_last_updated = None
-        self.__local_resource_status = None
-        self.__session = None
+        self.address = address
+        self.login()
+        self.api = RemoteCKAN(address, user_agent=user_agent, get_only=get_only, session=self._session)
+        self._get_api_key()
+        self._metadata = None
+        self._metadata_last_updated = None
+        self._local_resource_status = None
+        self._session = None
         # If CachedCKAN not used in a `with` context, we need to materialize metadata cache to disk on every update.
-        self.__in_context_block = False
+        self._in_context_block = False
 
     @classmethod
     def _pickle_to_file(cls, path, data):
@@ -291,6 +295,9 @@ class CachedCKAN:
         else:
             logger.info('No prior data file exists at %s', path)
 
+    def _get_api_key(self):
+        self.api.apikey = self.api.action.user_show(id=self.username)['apikey']
+
     def get_ckan_metadata(self, force_download=False):
         """
         Downloads and caches the metadata of all resources the user has access to.
@@ -298,12 +305,12 @@ class CachedCKAN:
         """
         # Simplify the metadata structure to insulate from CKAN API changes? Only need resource name or dataset title?
         # No - more explicit if done in accessor methods instead, e.g. `self.get_resource_metadata`
-        if not self.__metadata and force_download is False:
+        if not self._metadata and force_download is False:
             self.load_user_metadata()
 
-        if not self.__metadata or \
+        if not self._metadata or \
                 force_download or \
-                (self.__metadata_last_updated + datetime.timedelta(seconds=self.check_for_updates_every) <
+                (self._metadata_last_updated + datetime.timedelta(seconds=self.check_for_updates_every) <
                  datetime.datetime.utcnow()):
             try:
                 # This returns a list of datasets, and within each there is a 'resources' key with a list of resources.
@@ -315,28 +322,28 @@ class CachedCKAN:
                 logging.error(error)
                 raise RuntimeError('%s\n%s' % (error, str(e)))
 
-            self.__metadata_last_updated = datetime.datetime.utcnow()
+            self._metadata_last_updated = datetime.datetime.utcnow()
 
-            self.__metadata = dict()
+            self._metadata = dict()
             for dataset in metadata:
                 for resource in dataset['resources']:
                     # After unpickling, `(meta['resource_a']['dataset'] is meta['resource_b']['dataset'])`
                     resource['dataset'] = dataset
-                    self.__metadata[resource['id']] = resource
+                    self._metadata[resource['id']] = resource
 
-            # self.__metadata = {resource_id: {resource}} where resource['dataset'] = {dataset} for all CKAN resources
+            # self._metadata = {resource_id: {resource}} where resource['dataset'] = {dataset} for all CKAN resources
 
-            if not self.__in_context_block:
+            if not self._in_context_block:
                 self.save_user_metadata()
-        return self.__metadata
+        return self._metadata
 
     @property
     def local_resource_status(self):
-        if not self.__local_resource_status:
-            self.__local_resource_status = self._unpickle_from_file(self.resource_status_cache_filename)
-            if not self.__local_resource_status:
-                self.__local_resource_status = dict()
-        return self.__local_resource_status
+        if not self._local_resource_status:
+            self._local_resource_status = self._unpickle_from_file(self.resource_status_cache_filename)
+            if not self._local_resource_status:
+                self._local_resource_status = dict()
+        return self._local_resource_status
 
     @property
     def server_domain(self):
@@ -357,21 +364,21 @@ class CachedCKAN:
         """
         Context manager to cache session, CKAN metadata and resource status
         """
-        self.__in_context_block = True
+        self._in_context_block = True
         # TODO: create local backup of file in case we can't upload and have to roll back
         return self
 
     def save_resource_statuses(self):
-        if self.__local_resource_status:
-            self._pickle_to_file(self.resource_status_cache_filename, self.__local_resource_status)
+        if self._local_resource_status:
+            self._pickle_to_file(self.resource_status_cache_filename, self._local_resource_status)
 
     def save_user_metadata(self):
-        if self.__metadata:
-            self._pickle_to_file(self.metadata_cache_filename, (self.__metadata_last_updated, self.__metadata))
+        if self._metadata:
+            self._pickle_to_file(self.metadata_cache_filename, (self._metadata_last_updated, self._metadata))
 
     def load_user_metadata(self):
         try:
-            self.__metadata_last_updated, self.__metadata = self._unpickle_from_file(self.metadata_cache_filename)
+            self._metadata_last_updated, self._metadata = self._unpickle_from_file(self.metadata_cache_filename)
         except TypeError:  # file not found / pickle error
             with contextlib.suppress(FileNotFoundError):
                 os.remove(self.metadata_cache_filename)  # remove for re-download
@@ -379,8 +386,8 @@ class CachedCKAN:
     def __exit__(self, type, value, traceback):
         self.save_resource_statuses()
         self.save_user_metadata()
-        if self.__session:
-            self.__session.close()
+        if self._session:
+            self._session.close()
         self.api.close()
         # TODO: restore from local backup of file in case we can't upload and have to roll back
 
@@ -394,7 +401,7 @@ class CachedCKAN:
 
     @property
     def iso_utc_datetime(self):
-        return datetime.datetime.utcnow().replace(microsecond=0).isoformat()  # .replace(':', '.')
+        return datetime.datetime.utcnow().replace(microsecond=0).isoformat()
 
     def get_resource_metadata(self, resource_id):
         try:
@@ -431,15 +438,12 @@ class CachedCKAN:
 
     def login(self):
         """
-        Login to CKAN web UI.
-
-        Returns a ``requests.Session`` instance with the CKAN
-        session cookie.
+        Login to CKAN web UI and store authenticated session.
         """
-        self.__session = requests.Session()
+        self._session = requests.Session()
         data = {'login': self.username, 'password': self.password}
-        url = self.api.address + '/login_generic'
-        r = self.__session.post(url, data=data)
+        url = self.address + '/login_generic'
+        r = self._session.post(url, data=data)
         if 'field-login' in r.text:
             # Response still contains login form
             raise RuntimeError('Login failed.')
@@ -462,7 +466,7 @@ class CachedCKAN:
             cache_until = datetime.datetime.utcnow() + datetime.timedelta(minutes=cache_for)
             self.local_resource_status[resource_id]['cache_until'] = cache_until
 
-        if not self.__in_context_block:
+        if not self._in_context_block:
             self.save_resource_statuses()
 
     def _delete_cache(self, resource_id=None):
@@ -470,13 +474,8 @@ class CachedCKAN:
             logging.warning('CachedCKAN._delete_cache called with no resource_id - deleting WHOLE cache.')
         cache_path = self.get_resource_cache_path(resource_id) if resource_id else self.cache_dir
         with contextlib.suppress(FileNotFoundError):
-            for cache_file in os.listdir(cache_path):
-                if os.path.isdir(cache_file):
-                    shutil.rmtree(cache_file)
-                    logging.info('Deleting directory from cache %s', cache_file)
-                else:
-                    os.remove(cache_file)
-                    logging.info('Deleting file from cache %s', cache_file)
+            shutil.rmtree(cache_path)
+            logging.info('Deleting directory from cache %s', cache_path)
 
     def _prune_cache(self):
         """
@@ -534,41 +533,40 @@ class CachedCKAN:
         package_id = self.get_resource_metadata(resource_id)['package_id']
 
         url = '{ckan}/dataset/{pkg}/resource/{res}/download/'.format(
-                ckan=self.api.address, pkg=package_id, res=resource_id)
+              ckan=self.address, pkg=package_id, res=resource_id)
 
         self.login()
-        response = self.__session.get(url)
+        response = self._session.get(url)
+
+        response.raise_for_status()
+
+        self._delete_cache(resource_id)
+        self._prune_cache()
 
         cache_path = self.get_resource_cache_path(resource_id, True)
 
-        if response.status_code == 200:
-            self._delete_cache(resource_id)
-            self._prune_cache()
+        # `cgi.parse_header` doesn't handle non-ASCII filenames
+        file_path = os.path.join(cache_path, rfc6266.parse_requests_response(response).filename_unsafe)
 
-            # `cgi.parse_header` doesn't handle non-ASCII filenames
-            file_path = os.path.join(cache_path, rfc6266.parse_requests_response(response).filename_unsafe)
+        with open(file_path, 'wb') as f:
+            for chunk in response.iter_content(512):  # chunk size in bytes
+                f.write(chunk)
 
-            with open(file_path, 'wb') as f:
-                for chunk in response.iter_content(512):  # chunk size in bytes
-                    f.write(chunk)
+        if resource_id not in self.local_resource_status:
+            self.local_resource_status[resource_id] = dict()
+        self.local_resource_status[resource_id]['last_downloaded'] = datetime.datetime.utcnow()
 
-            if resource_id not in self.local_resource_status:
-                self.local_resource_status[resource_id] = dict()
-            self.local_resource_status[resource_id]['last_downloaded'] = datetime.datetime.utcnow()
+        if not self._in_context_block:
+            self.save_resource_statuses()
+            self._session.close()
 
-            if not self.__in_context_block:
-                self.save_resource_statuses()
-                self.__session.close()
-
-            return file_path
-        else:
-            raise ConnectionError('Error %s occurred when downloading resource %s.', resource_id, response.status_code)
+        return file_path
 
     def create_resource(self, **kwargs):
         """
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='123-abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
 
                 ckan.create_resource(
                     package_id='my-dataset-with-files',
@@ -593,8 +591,8 @@ class CachedCKAN:
     def create_package(self, **kwargs):
         """
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='123-abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
 
                 ckan.create_package(
                     name='joe_data',
@@ -617,8 +615,9 @@ class CachedCKAN:
     def patch_package(self, **kwargs):
         """
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='123-abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
+
                 ckan.patch_package(title='Chris test data',
                                    author='arthur',
                                    version='1.3c',
@@ -633,8 +632,8 @@ class CachedCKAN:
     def patch_resource(self, **kwargs):
         """
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='123-abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
 
                 ckan.patch_resource(
                     name='an updated test resource upload',
@@ -657,8 +656,8 @@ class CachedCKAN:
         `CachedCKAN.patch_package`.
 
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='123-abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
 
                 ckan.update_package(title='Chris test data',
                                     author='arthur',
@@ -676,8 +675,9 @@ class CachedCKAN:
     def update_resource(self, **kwargs):
         """
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='01234abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
+
                 ckan.update_resource(
                     name='another updated resource',
                     id='fd01f45a-b2d4-4897-848c-2b6c16343a49',  # id optional
@@ -696,8 +696,9 @@ class CachedCKAN:
     def delete_resource(self, resource_id):
         """
         Example usage:
-            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd', cache_dir='/cache',
-                            api_key='01234abc') as ckan:
+            with CachedCKAN(address='https://data.kimetrica.com', username='user', password='pwd',
+                            cache_dir='/ckan_cache') as ckan:
+
                 ckan.delete_resource(resource_id='fd01f45a-b2d4-4897-848c-2b6c16343a49')  # id optional
 
         See: http://docs.ckan.org/en/latest/api/#ckan.logic.action.update.resource_delete
@@ -712,11 +713,10 @@ class CkanTarget(luigi.Target):
     """
     A Luigi Target that stores and retrieves data from a (locally cached) CKAN Instance.
     """
-    def __init__(self, address, api_key=None, username=None, password=None, resource=None, dataset=None,
+    def __init__(self, address, username=None, password=None, resource=None, dataset=None,
                  check_for_updates_every=None, cache_dir=None, **kwargs):
         """
         :param address: the URL for the CKAN server
-        :param api_key:
         :param username:
         :param password:
         :param resource:
@@ -750,7 +750,6 @@ class CkanTarget(luigi.Target):
         self.ckan_kwargs.update({'address': address or config['ckan']['address'],
                                  'username': username or config['ckan']['username'],
                                  'password': password or config['ckan']['password'],
-                                 'apikey': api_key or config['ckan']['api_key'],
                                  'cache_dir': cache_dir or config['ckan']['cache_dir'],
                                  'check_for_updates_every': check_for_updates_every or
                                                             int(config['ckan']['check_for_updates_every']), })  # NOQA
@@ -811,8 +810,7 @@ class CkanTarget(luigi.Target):
             class GetFromCkan(luigi.ExternalTask):
                 def output(self):
                     return CkanTarget(address='https://data.kimetrica.com', username='user', password='pwd',
-                                      cache_dir='cache', api_key='123abc45-abcd-418f-ac2e-70bbd629c277',
-                                      resource={'name': 'My CKAN resource'})
+                                      cache_dir='cache', resource={'name': 'My CKAN resource'})
 
             class CopyToLocalTarget(luigi.Task):
                 def requires(self):
@@ -848,8 +846,7 @@ class CkanTarget(luigi.Target):
                     name = 'Test upload at %s' % \
                            datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
                     return CkanTarget(address='https://data.kimetrica.com', username='user', password='pwd',
-                                      cache_dir='cache', apikey='123abc45-abcd-418f-ac2e-70bbd629c277',
-                                      dataset={'id': 'c86186f4-8368-4ecc-a907-08ca67d0e7ab'},
+                                      cache_dir='cache', dataset={'id': 'c86186f4-8368-4ecc-a907-08ca67d0e7ab'},
                                       resource={'name': name})
 
                 def run(self):
@@ -890,3 +887,28 @@ class CkanTarget(luigi.Target):
         """
         with CachedCKAN(**self.ckan_kwargs) as ckan:
             ckan.delete_resource(resource_id=self.resource_id)
+
+
+class FromCkanByResourceName(luigi.ExternalTask):
+    def output(self):
+        print('Task FromCkanByResourceName output()')
+        return CkanTarget(address='https://data.kimetrica.com', username='chrisp', password='wR$6*jf!',
+                          cache_dir='cache', resource={'name': 'a test resource upload'})
+
+class TestCkanDownloadByResourceName(luigi.Task):
+    def requires(self):
+        print("TestCkanDownloadByResourceName.requiring FromCkanById()")
+        return FromCkanByResourceName()
+    def run(self):
+        print('Task TestCkanDownloadByResourceName getting result: %s' % self.input().get())
+        with open(self.input().get(), 'rb') as in_file, self.output().open('wb') as out_file:
+            for l in in_file:
+                out_file.write(l)
+    def output(self):
+        filename = 'TstCknDld%s' % datetime.datetime.utcnow().replace(microsecond=0).isoformat().replace(':', '.')
+        print("TestCkanDownloadByResourceName.output() to %s" % filename)
+        return luigi.LocalTarget(filename, format=luigi.format.Nop)  # Nop: https://github.com/spotify/luigi/issues/1647
+
+
+if __name__ == '__main__':
+    luigi.build([TestCkanDownloadByResourceName()], workers=1, local_scheduler=True)
