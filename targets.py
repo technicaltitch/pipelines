@@ -1,7 +1,4 @@
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 import contextlib
 import datetime
 import glob
@@ -235,8 +232,8 @@ class CachedCKAN:
     particularly for stateless consumers such as Luigi tasks.
     """
 
-    RESOURCE_STATUS_FILE = 'local_resource_status.pickle'
-    METADATA_FILE = 'metadata_%s.pickle'  # % username
+    RESOURCE_STATUS_FILE = 'cached_ckan_local_resource_status.pickle'
+    METADATA_FILE = 'cached_ckan_metadata_%s.pickle'  # % username
 
     def __init__(self, address, username, password, cache_dir, user_agent=None,
                  get_only=False, check_for_updates_every=None, cache_resources_for=None):
@@ -717,8 +714,8 @@ class CkanTarget(luigi.Target):
                  check_for_updates_every=None, cache_dir=None, **kwargs):
         """
         :param address: the URL for the CKAN server
-        :param username:
-        :param password:
+        :param username: CKAN username, although it is recommended you put these in your luigi.cfg file instead
+        :param password: CKAN password, although it is recommended you put these in your luigi.cfg file instead
         :param resource:
             Example `resource` dict:
             {
@@ -736,7 +733,10 @@ class CkanTarget(luigi.Target):
                 id='e76186f4-8368-4ecc-a907-08ca67d0e7ab'
             }
         :param check_for_updates_every: of CKAN metadata in seconds
-        :param cache_dir: local directory in which CKAN cache is stored - should be shared by all users
+        :param cache_dir: local directory in which CKAN cache is stored - should be shared by all users. If you omit
+        this, CkanTarget looks in luigi.cfg for the `cache_dir` setting in the `[ckan]` section. If that is omitted too,
+        CkanTarget looks for the `cache_dir` setting in the `[core]` section, then creates a sub-directory within this
+        called `CkanTarget`. The latter configuration is probably the simplest.
         :param kwargs: extra parameters for initializing the CKAN API
 
         Note: A 'dataset' is called a 'package' when using the CKAN API. CkanTarget uses 'dataset' except when using
@@ -746,13 +746,20 @@ class CkanTarget(luigi.Target):
         # TODO: Prohibit use of resource_id, as Targets do not patch in place? Or add `overwrite` flag or timeout value?
         self.resource = resource or {}
         self.dataset = dataset or {'id': config['ckan']['default_dataset_id']}
+
+        if cache_dir is None:
+            cache_dir = config.get('ckan', 'cache_dir', None)
+        if cache_dir is None:
+            cache_dir = os.path.join(config.get('core', 'cache_dir'), type(self).__name__)
+        cache_dir = os.path.abspath(cache_dir)
+
         self.ckan_kwargs = kwargs or {}
-        self.ckan_kwargs.update({'address': address or config['ckan']['address'],
-                                 'username': username or config['ckan']['username'],
-                                 'password': password or config['ckan']['password'],
-                                 'cache_dir': cache_dir or config['ckan']['cache_dir'],
+        self.ckan_kwargs.update({'address': address or config.get('ckan', 'address'),
+                                 'username': username or config.get('ckan', 'username'),
+                                 'password': password or config.get('ckan', 'password'),
+                                 'cache_dir': cache_dir,
                                  'check_for_updates_every': check_for_updates_every or
-                                                            int(config['ckan']['check_for_updates_every']), })  # NOQA
+                                                            int(config.get('ckan', 'check_for_updates_every')), })  # NOQA
 
     @property
     def resource_id(self):
