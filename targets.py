@@ -854,6 +854,11 @@ class CkanTarget(luigi.Target):
 
         :param file_path: `str` Absolute path to file to be uploaded
         :return: None
+
+        Note: As our CKAN instance scales, this post has useful performance suggestions for large CKAN instances:
+        https://github.com/ckan/ckan/issues/681
+        Summarized here:
+        https://github.com/ckan/ckan/wiki/Performance-tips-for-large-imports
         """
         resource_kwargs = self.resource
         if file_path:
