@@ -123,11 +123,14 @@ class ExpiringMemoryTarget(luigi.target.Target):
         return self.cache[self.key][1]
 
     def prune(self):
+        to_remove = []
         for key, value in self.cache.items():
             modified_time = value[0]
             if modified_time + self.timeout < time.time():
                 logger.debug("MemoryTarget '%s' has expired" % self.key)
-                del self.cache[key]
+                to_remove.append(key)
+        for key in to_remove:
+            del self.cache[key]
 
     def put(self, value):
         self.prune()
