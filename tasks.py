@@ -13,8 +13,27 @@ logger = logging.getLogger('luigi-interface')
 
 class Task(luigi.Task):
     """
-    A Pipeline Task
+    A pipeline task.
+    Placeholder Kimetrica sub-class for additional functionality, eg, unit tests.
     """
+    pass
+
+
+class IndicatorTask(Task):
+    """
+    A pipeline task that processes an Indicator.
+    Placeholder Kimetrica sub-class for additional functionality, eg, documentation tests.
+    """
+    pass
+
+
+class LocalTarget(luigi.LocalTarget):
+    """
+    A file system Target.
+    Placeholder Kimetrica sub-class for additional functionality, eg, config-based porting between AWS and local file
+    systems.
+    """
+    pass
 
 
 class RESTExternalTask(luigi.ExternalTask):
