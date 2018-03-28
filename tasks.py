@@ -13,8 +13,27 @@ logger = logging.getLogger('luigi-interface')
 
 class Task(luigi.Task):
     """
-    A Pipeline Task
+    A pipeline task.
+    Placeholder Kimetrica sub-class for additional functionality, eg, unit tests.
     """
+    pass
+
+
+class IndicatorTask(Task):
+    """
+    A pipeline task that processes an Indicator.
+    Placeholder Kimetrica sub-class for additional functionality, eg, documentation tests.
+    """
+    pass
+
+
+class LocalTarget(luigi.LocalTarget):
+    """
+    A file system Target.
+    Placeholder Kimetrica sub-class for additional functionality, eg, config-based porting between AWS and local file
+    systems.
+    """
+    pass
 
 
 class RESTExternalTask(luigi.ExternalTask):
@@ -81,12 +100,12 @@ class ReadDataFrameTask(Task):
                 return self.read_dataframe(filename, read_method)
         except AttributeError:
             # Target doesn't support open, so assume that it supports `get()`
-            # and that `get()` returns a file-like object
+            # and that `get()` returns a file-like object or a path
             # If we have a file-like object then the read_method must be specified explicitly
             assert self.read_method, 'ReadDataFrame requires an explicit read_method unless there is a local file'
             read_method = getattr(pd, self.read_method)
-            buffer = target.get()
-            return self.read_dataframe(buffer, read_method)
+            path_or_buffer = target.get()
+            return self.read_dataframe(path_or_buffer, read_method)
 
     def run(self):
         targets = self.input()
