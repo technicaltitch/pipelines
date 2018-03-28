@@ -867,6 +867,10 @@ class CkanTarget(luigi.Target):
             offline, any updates invalidate the local cache, we must update the local copy of the
             resource metadata in the same way the server would, and unit tests. Not too hard to fix but
             not important enough now.
+            * `CkanTarget` is not thread-safe - if a second Python shell attempts to access a resource
+            while a first shell is already downloading it, I believe the second shell will start a
+            second download rather than wait. (There probably needs to be semaphore functionality in
+            local_resource_status.pickle to tell subsequent downloaders to wait.)
             * Unit tests
 
     Running the code

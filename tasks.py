@@ -100,12 +100,12 @@ class ReadDataFrameTask(Task):
                 return self.read_dataframe(filename, read_method)
         except AttributeError:
             # Target doesn't support open, so assume that it supports `get()`
-            # and that `get()` returns a file-like object
+            # and that `get()` returns a file-like object or a path
             # If we have a file-like object then the read_method must be specified explicitly
             assert self.read_method, 'ReadDataFrame requires an explicit read_method unless there is a local file'
             read_method = getattr(pd, self.read_method)
-            buffer = target.get()
-            return self.read_dataframe(buffer, read_method)
+            path_or_buffer = target.get()
+            return self.read_dataframe(path_or_buffer, read_method)
 
     def run(self):
         targets = self.input()
