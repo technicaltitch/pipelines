@@ -573,7 +573,7 @@ class CachedCKAN:
         specific Resource. These persist between CachedCKAN instantiations and calls until updated. It can be
         updated by passing `cache_for` (in minutes) whenever the resource is accessed.
         """
-        default_expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=self.cache_resources_for)
+        default_expiry = datetime.datetime.utcnow() - datetime.timedelta(minutes=self.cache_resources_for)
         for resource_id, resource in self.local_resource_status.items():
             if 'cache_until' in resource:
                 if datetime.datetime.utcnow() > resource['cache_until']:
@@ -850,7 +850,7 @@ class CkanTarget(luigi.Target):
             * Patch, update or create datasets
             * Store the `resource id` of created resources - this would require persistence, which
             would limit `CkanTarget` to single worker installs or require persistence to disk
-            independently per task instance in a thread-safe manner.
+            independently per pipeline instance in a thread-safe manner.
             * The dataset title / resource name combination must be unique if you do not specify
             resource id. (The API also supports dataset name and resource title, but these are not
             exposed in the web GUI, so are ignored (passed to CKAN untouched) by `CkanTarget`.)
@@ -1002,6 +1002,10 @@ class CkanTarget(luigi.Target):
         :return: True if the resource is found locally or on CKAN, else False.
         """
         return bool(self.get())
+
+    @property
+    def path(self):
+        return self.get()
 
     def get(self):
         """
