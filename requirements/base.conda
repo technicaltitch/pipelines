@@ -19,12 +19,10 @@ geopandas==0.3.0
 luigi==2.7.1
 Markdown==2.6.8
 matplotlib==2.1.1
-networkx==1.7.1
 numexpr==2.6.4
 openpyxl==2.4.7
 pandas==0.21.0
 psutil==5.4.3
-pygraphviz==1.3.1
 python-dateutil==2.6.0
 pytables==3.4.2
 requests==2.18.4

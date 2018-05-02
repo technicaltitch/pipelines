@@ -13,3 +13,6 @@ Sphinx==1.6.3
 # Not available via conda
 ckanapi==4.1
 rfc6266-parser==0.0.5.*
+
+networkx==1.7.1
+pygraphviz==1.3.1
