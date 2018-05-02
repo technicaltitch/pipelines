@@ -16,4 +16,4 @@ rfc6266-parser==0.0.5.*
 
 # Only old versions on Conda
 networkx
-pygraphviz==1.2
+pygraphviz

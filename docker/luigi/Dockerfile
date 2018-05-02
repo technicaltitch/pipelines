@@ -7,8 +7,9 @@ RUN apt-get -qq update && \
         vim \
         curl \
         postgresql-client && \
+        graphviz && \
     apt-get clean && \
-    apt-get -y autoremove && \ 
+    apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 ARG INCLUDE_LATEX
