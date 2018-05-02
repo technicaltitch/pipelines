@@ -213,8 +213,8 @@ def generate_dag(task, done=set()):
 
 
 def task_node_attribs(task):
-    return {'href': "http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#chris_pipeline.analysis.%s" %
-                    type(task).__name__,
+    return {'href': "http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#chris_pipeline.%s.%s" %
+                    (task.__class__.__module__, task.__class__.__name__),
             'target': "_blank"}
 
 
