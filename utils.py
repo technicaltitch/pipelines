@@ -1,15 +1,16 @@
 """
 Various utlity functions to help with Data Pipeline development
 """
-from contextlib import contextmanager
 import datetime
-from functools import wraps
 import importlib
 import inspect
 import logging
 import time
+from contextlib import contextmanager
+from functools import wraps
 
 import luigi
+import networkx as nx
 from luigi.parameter import _no_value
 from luigi.task_register import Register
 
@@ -191,3 +192,87 @@ def run(task, **kwargs):
         assert isinstance(task, luigi.Task)
         luigi.build([task])
         return task.output()
+
+
+def generate_dag(task, done=set()):
+    deps = task.requires()
+    if deps and str(task) not in done:
+        dag=[]
+        if isinstance(deps, luigi.Task):
+            dag = merge_prior_dag(dag, done, deps, task)
+        else:
+            try:
+                for dep in deps:
+                    dag = merge_prior_dag(dag, done, dep, task)
+            except TypeError:
+                for dep in deps.values():
+                    dag = merge_prior_dag(dag, done, dep, task)
+        return dag
+    else:
+        return str(task)
+
+
+def task_node_attribs(task):
+    return {'href': "http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#chris_pipeline.analysis.%s" %
+                    type(task).__name__,
+            'target': "_blank"}
+
+
+def merge_prior_dag(dag, done, src, task):
+    src = generate_dag(src, done)
+    done.add(str(task))
+    if isinstance(src, list):
+        dag += src
+        dag.append((src[-1][1], str(task), task_node_attribs(task)))
+    else:
+        dag.append((src, str(task), task_node_attribs(task)))
+    return dag
+
+
+def get_dag(task):
+    """
+    Create a temporary Luigi Config that has defaults for all variables
+    Instantiates the Task DAG
+    Returns a list of tuples containing source task, destination task, and node attributes
+    """
+    def get_default(param_obj):
+        if isinstance(param_obj, luigi.IntParameter):
+            return '1'
+        elif isinstance(param_obj, luigi.DateParameter):
+            return datetime.date.today().isoformat()
+        elif isinstance(param_obj, luigi.Parameter):
+            return ''
+
+    config = luigi.configuration.get_config()
+
+    # Make sure every parameter has a default value
+    sections_to_remove = []
+    options_to_remove = []
+    for task_name, is_without_section, param_name, param_obj in Register.get_all_params():
+        if param_obj._default == luigi.parameter._no_value:
+            if is_without_section:
+                sections_to_remove.append(task_name)
+            options_to_remove.append((task_name, param_name))
+            config.set(task_name, param_name, get_default(param_obj))
+
+    dag = generate_dag(task)
+
+    # Remove any config we set up
+    for section, option in options_to_remove:
+        config.remove_option(section, option)
+    for section in sections_to_remove:
+        config.remove_section(section)
+
+    return dag
+
+
+def process_docstring(app, what, name, obj, options, lines):
+    if inspect.isclass(obj) and issubclass(obj, luigi.Task):
+        dag = get_dag(obj())
+        G = nx.MultiDiGraph()
+        G.add_edges_from(dag)
+        A = nx.nx_agraph.to_agraph(G)
+        lines.extend(['',
+                      '.. graphviz::',
+                      '',
+                      '   ' + A.string()])
