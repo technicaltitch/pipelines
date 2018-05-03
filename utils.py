@@ -8,6 +8,7 @@ import logging
 import time
 from contextlib import contextmanager
 from functools import wraps
+from pprint import pprint
 
 import luigi
 import networkx as nx
@@ -271,10 +272,12 @@ def get_dag(task):
 def process_docstring(app, what, name, obj, options, lines):
     if inspect.isclass(obj) and issubclass(obj, luigi.Task):
         dag = get_dag(obj())
-        G = nx.MultiDiGraph()
-        G.add_edges_from(dag)
-        A = nx.nx_agraph.to_agraph(G)
-        lines.extend(['',
-                      '.. graphviz::',
-                      '',
-                      '   ' + A.string()])
+        if isinstance(dag, list):
+            logging.info(pprint(dag))
+            G = nx.MultiDiGraph()
+            G.add_edges_from(dag)
+            A = nx.nx_agraph.to_agraph(G)
+            lines.extend(['',
+                          '.. graphviz::',
+                          '',
+                          '   ' + A.string()])
