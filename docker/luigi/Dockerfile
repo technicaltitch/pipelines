@@ -7,6 +7,9 @@ RUN apt-get -qq update && \
         vim \
         curl \
         postgresql-client && \
+        graphviz && \
+        libgraphviz-dev && \
+        pkg-config && \
     apt-get clean && \
     apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -20,7 +23,6 @@ RUN if [ -n "${INCLUDE_LATEX}" ]; then \
             texlive-fonts-recommended \
             texlive-latex-extra \
             latexmk && \
-            graphviz && \
         apt-get clean && \
         apt-get -y autoremove && \
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* ; \
