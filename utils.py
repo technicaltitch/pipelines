@@ -194,7 +194,9 @@ def run(task, **kwargs):
         return task.output()
 
 
-def generate_dag(task, done=set()):
+def generate_dag(task, done=None):
+    if done is None:
+        done = set()
     deps = task.requires()
     if deps and str(task) not in done:
         dag=[]
@@ -212,8 +214,8 @@ def generate_dag(task, done=set()):
         return str(task)
 
 
-def task_node_attribs(task):
-    return {'href': "http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#chris_pipeline.%s.%s" %
+def edge_attribs(task):
+    return {'href': 'http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#chris_pipeline.%s.%s' %
                     (task.__class__.__module__, task.__class__.__name__),
             'target': "_blank"}
 
@@ -223,9 +225,9 @@ def merge_prior_dag(dag, done, src, task):
     done.add(str(task))
     if isinstance(src, list):
         dag += src
-        dag.append((src[-1][1], str(task), task_node_attribs(task)))
+        dag.append((src[-1][1], str(task), edge_attribs(task)))
     else:
-        dag.append((src, str(task), task_node_attribs(task)))
+        dag.append((src, str(task), edge_attribs(task)))
     return dag
 
 
