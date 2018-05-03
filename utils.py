@@ -216,7 +216,7 @@ def generate_dag(task, done=None):
 
 
 def edge_attribs(task):
-    return {'href': 'http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#chris_pipeline.%s.%s' %
+    return {'href': 'http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#%s.%s' %
                     (task.__class__.__module__, task.__class__.__name__),
             'target': "_blank"}
 
