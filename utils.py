@@ -196,6 +196,22 @@ def run(task, **kwargs):
 
 
 def generate_dag(task, done=None):
+
+    def edge_attribs(task):
+        return {'href': 'http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#%s.%s' %
+                        (task.__class__.__module__, task.__class__.__name__),
+                'target': "_blank"}
+
+    def merge_prior_dag(dag, done, src, task):
+        src = generate_dag(src, done)
+        done.add(str(task))
+        if isinstance(src, list):
+            dag += src
+            dag.append((src[-1][1], str(task), edge_attribs(task)))
+        else:
+            dag.append((src, str(task), edge_attribs(task)))
+        return dag
+
     if done is None:
         done = set()
     deps = task.requires()
@@ -215,28 +231,12 @@ def generate_dag(task, done=None):
         return str(task)
 
 
-def edge_attribs(task):
-    return {'href': 'http://data-lab.pages.kimetrica.com/rm/chris_pipeline.html#%s.%s' %
-                    (task.__class__.__module__, task.__class__.__name__),
-            'target': "_blank"}
-
-
-def merge_prior_dag(dag, done, src, task):
-    src = generate_dag(src, done)
-    done.add(str(task))
-    if isinstance(src, list):
-        dag += src
-        dag.append((src[-1][1], str(task), edge_attribs(task)))
-    else:
-        dag.append((src, str(task), edge_attribs(task)))
-    return dag
-
-
 def get_dag(task):
     """
     Create a temporary Luigi Config that has defaults for all variables
-    Instantiates the Task DAG
-    Returns a list of tuples containing source task, destination task, and node attributes
+    Instantiates the Task DAG into a list of edge tuples containing source task, destination task, and node attributes.
+    Passes this to ``networkx`` ``MultiDiGraph.add_edges_from``.
+    Returns a :class:`nx.MultiDiGraph` containing source task, destination task, and node attributes
     """
     def get_default(param_obj):
         if isinstance(param_obj, luigi.IntParameter):
@@ -266,18 +266,21 @@ def get_dag(task):
     for section in sections_to_remove:
         config.remove_section(section)
 
-    return dag
+    G = nx.MultiDiGraph()
+    G.add_edges_from(dag)
+    return G
 
 
 def process_docstring(app, what, name, obj, options, lines):
     if inspect.isclass(obj) and issubclass(obj, luigi.Task):
-        dag = get_dag(obj())
-        if isinstance(dag, list):
-            logging.info(pprint(dag))
-            G = nx.MultiDiGraph()
-            G.add_edges_from(dag)
-            A = nx.nx_agraph.to_agraph(G)
-            lines.extend(['',
-                          '.. graphviz::',
-                          '',
-                          '   ' + A.string()])
+        dag_G = get_dag(obj())
+        assert isinstance(dag_G, nx.MultiDiGraph)
+        AGraph = nx.nx_agraph.to_agraph(dag_G)
+        # AGraph uses pygraphviz, which seems to be the most flexible in terms of formatting
+        # and richer dot expressions, to be confirmed.
+        dot = AGraph.string()
+        logging.info(pprint(dot))
+        lines.extend(['',
+                      '.. graphviz::',
+                      '',
+                      '   ' + dot])
